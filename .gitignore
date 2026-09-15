@@ -1,0 +1,20 @@
+# Generated build, packaging, and coverage output.
+/build/
+/dist/
+/coverage/
+/compile_commands.json
+
+# Local Vim state and backup files.
+*.swp
+*.swo
+*.swn
+*~
+/Session.vim
+/.netrwhist
+
+# Operating-system metadata.
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# Keep source programs and test fixtures (.s, .asm, .bin, .elf) trackable.
