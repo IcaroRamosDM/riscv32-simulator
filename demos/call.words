@@ -1,0 +1,15 @@
+# RV32I call demonstration. Default load address and entry: 0.
+00010137 # 0000: lui x2, 0x10
+00700513 # 0001: addi x10, x0, 7
+014000EF # 0002: jal x1, 20
+00050293 # 0003: addi x5, x10, 0
+00000513 # 0004: addi x10, x0, 0
+05D00893 # 0005: addi x17, x0, 93
+00000073 # 0006: ecall
+FF010113 # 0007: addi x2, x2, -16
+00112623 # 0008: sw x1, 12(x2)
+00A12423 # 0009: sw x10, 8(x2)
+00A50533 # 000a: add x10, x10, x10
+00C12083 # 000b: lw x1, 12(x2)
+01010113 # 000c: addi x2, x2, 16
+00008067 # 000d: jalr x0, 0(x1)

@@ -1,0 +1,8 @@
+# RV32I arithmetic demonstration. Default load address and entry: 0.
+00C00293 # 0000: addi x5, x0, 12
+00700313 # 0001: addi x6, x0, 7
+006283B3 # 0002: add x7, x5, x6
+40638433 # 0003: sub x8, x7, x6
+00000513 # 0004: addi x10, x0, 0
+05D00893 # 0005: addi x17, x0, 93
+00000073 # 0006: ecall

@@ -1,0 +1,13 @@
+# RV32I sum demonstration. Default load address and entry: 0.
+00100293 # 0000: addi x5, x0, 1
+00600313 # 0001: addi x6, x0, 6
+00000393 # 0002: addi x7, x0, 0
+005383B3 # 0003: add x7, x7, x5
+00128293 # 0004: addi x5, x5, 1
+FE62CCE3 # 0005: blt x5, x6, -8
+10000413 # 0006: addi x8, x0, 256
+00742023 # 0007: sw x7, 0(x8)
+00042483 # 0008: lw x9, 0(x8)
+00000513 # 0009: addi x10, x0, 0
+05D00893 # 000a: addi x17, x0, 93
+00000073 # 000b: ecall

@@ -1,153 +1,80 @@
 # Learning Guide
 
-## Help available now
+## Start here
 
 From the repository root:
 
 ```bash
-make help
-less docs/HELP.md
+make app
+./build/debug/riscv32-studio --help
+./build/debug/riscv32-studio --program demos/sum.words
 ```
 
-In `less`, press `q` to exit. The application command-line interface and graphical
-help are planned features. The current help consists of build help and this guide.
+At `rv32>`, type `help`, `help formats`, or `help addi`. Commands are
+case-sensitive; mnemonic help accepts either case. Use `quit` to leave.
+The [demo walkthroughs](../demos/README.md) supply expected results.
+The [flowcharts](FLOWCHARTS.md) show the current CPU and monitor paths.
 
 ## Essential terms
 
 | Term | Meaning |
 | --- | --- |
-| Register | A numbered storage location inside the simulated CPU. |
-| Register number | Which register to select, such as 2 for `x2`. |
-| Register value | The 32-bit data currently stored in that register. |
-| PC | The address of the current instruction. |
-| Instruction | An encoded request for an operation. |
-| Opcode | A field used to identify the instruction group. |
-| Immediate | A constant encoded in the instruction itself. |
-| Format | The arrangement of fields within an instruction. |
+| Register | A 32-bit storage location inside the CPU, numbered x0 through x31. |
+| Register number | Which location to select; x2 selects location 2. |
+| Register value | The bits stored there; x2 might contain 65,536. |
+| PC | Program counter: the address of the next instruction to attempt. |
+| Instruction | A 32-bit word encoding an operation and its operands. |
+| Opcode / funct fields | Bit fields that select an operation. |
+| Immediate | A constant stored in the instruction itself. |
+| Format | The arrangement of fields in the instruction word. |
+| Byte address | A location in RAM; consecutive addresses select consecutive bytes. |
+| Retire | Complete an instruction successfully and commit its effects. |
+| Trap | A reported condition that prevents normal completion, including faults and ECALL. |
+| Hart | One independently executing RISC-V hardware thread; this simulator has one. |
+
+The simulator is written in C, but it currently consumes encoded RV32I words.
+Compiling the user's C source and mapping source lines to instructions come in
+stage 3. One monitor step already means one machine instruction.
 
 ## Worked example: ADD
 
-Suppose the register contents before execution are:
-
-| Register | Value |
-| --- | --- |
-| `x1` | 99 |
-| `x2` | 5 |
-| `x3` | 7 |
-
-The assembly instruction is:
+Start with x1=99, x2=5, and x3=7:
 
 ```asm
 add x1, x2, x3
 ```
 
-Read it as: add the value in x2 to the value in x3, then store the result in x1.
-The destination comes first in this syntax. In this example, executing ADD
-replaces the value 99 in x1 with 12. The source values remain 5 and 7.
+Read this as: add the value in x2 to the value in x3, then put the result in x1.
+The destination comes first. x1 becomes 12; x2 and x3 keep their values.
+The register numbers 1, 2, and 3 are not the values being added.
 
-The numbers 1, 2, and 3 select registers. The values 5 and 7 are read from CPU
-state when the instruction executes. Changing those stored values does not
-change the encoding of this instruction.
-
-### From the request to bits
-
-For this R-format instruction, the encoded fields are:
-
-| Field | Bits | Encoded value | Role in this example |
+| Field | Instruction bits | Encoded bits | Role |
 | --- | --- | --- | --- |
-| `funct7` | 31-25 | `0000000` | Part of the ADD operation selection |
-| `rs2` | 24-20 | `00011` | Select x3 |
-| `rs1` | 19-15 | `00010` | Select x2 |
-| `funct3` | 14-12 | `000` | Part of the ADD operation selection |
-| `rd` | 11-7 | `00001` | Select x1 |
-| `opcode` | 6-0 | `0110011` | Register arithmetic/logic group |
-
-In order from bit 31 to bit 0:
+| funct7 | 31..25 | 0000000 | Select ADD within the register group. |
+| rs2 | 24..20 | 00011 | Select x3. |
+| rs1 | 19..15 | 00010 | Select x2. |
+| funct3 | 14..12 | 000 | Part of operation selection. |
+| rd | 11..7 | 00001 | Select x1. |
+| opcode | 6..0 | 0110011 | Register arithmetic/logic group. |
 
 ```text
-0000000 00011 00010 000 00001 0110011
+0000000 00011 00010 000 00001 0110011 = 0x003100B3
 ```
 
-These 32 bits are `0x003100B3` in hexadecimal. The opcode, funct3, and funct7
-together identify ADD for this encoding; the opcode alone is insufficient.
-
-In our little-endian RAM, this word occupies four bytes in ascending addresses:
-
-```text
-B3 00 31 00
-```
-
-### What field extraction does
-
-`instruction_extract_fields(0x003100B3)` returns the original word and the six
-field values. For example, `rd = 1`, `rs1 = 2`, and `rs2 = 3`.
-
-To extract rd, shifting the word right by 7 places moves bits 11-7 to bits 4-0.
-The mask `0x1F` keeps only those five bits. Their binary value `00001` is 1.
-
-The extraction function does not read the values 5 and 7, perform the addition,
-or write 12 into x1. Those actions belong to the implemented `cpu_step` function.
-
-### What operation identification does
-
-`instruction_decode(0x003100B3)` returns `INSTRUCTION_ADD` and the extracted
-fields. It checks all three operation selectors: opcode must be `0x33`, funct3
-must be zero, and funct7 must be zero. Changing funct7 to `0x20` produces SUB,
-which the decoder recognizes as `INSTRUCTION_SUB`.
-
-Unknown means unrecognized by the current implementation. It does not by itself
-prove that the word is invalid RV32I. Decoding preserves the raw word and fields
-for unknown operations too, and does not access CPU or RAM state.
-
-### What one execution step does
-
-With the ADD word at address 0x1000, PC set to 0x1000, and the register values
-from the example, a successful `cpu_step` has these effects:
+At PC=0x1000 the word is stored as bytes `B3 00 31 00`. After execution:
 
 | State | Before | After |
 | --- | --- | --- |
 | x1 | 99 | 12 |
-| x2 | 5 | 5 |
-| x3 | 7 | 7 |
+| x2 / x3 | 5 / 7 | 5 / 7 |
 | PC | 0x1000 | 0x1004 |
-| Instruction count | 41 | 42 |
+| Retired count | 41 | 42 |
 
-The step reads both operands before writing the destination. For example,
-`add x2, x2, x3` uses the old value in x2 and then replaces it with the sum.
+Both sources are read before writing rd. Therefore `add x2, x2, x3` is valid:
+it adds using the old x2, then replaces x2 with the sum.
 
-ADD retains the low 32 bits: 0xFFFFFFFF plus 1 becomes zero. Writes to x0 are
-discarded, but a successful instruction still advances PC and the counter.
-The simulator's instruction counter wraps from UINT64_MAX to zero. It counts
-successful instructions, not clock cycles.
-
-RAM is unchanged by the current ADD and SUB implementations. Fetch and decode are also
-available separately for inspection. The full [execution flowchart](FLOWCHARTS.md#9-single-instruction-execution)
-shows the checks performed by `cpu_step`.
-
-### Step results
-
-| Result | Meaning |
-| --- | --- |
-| `CPU_STEP_OK` | One supported instruction executed successfully. |
-| `CPU_STEP_HALTED` | The CPU was already halted; no instruction was attempted. |
-| `CPU_STEP_INVALID_ARGUMENT` | A required pointer was null or a register access was rejected. |
-| `CPU_STEP_MISALIGNED_PC` | PC was not a multiple of four bytes. |
-| `CPU_STEP_FETCH_FAILED` | The instruction word could not be read from RAM. |
-| `CPU_STEP_UNKNOWN_INSTRUCTION` | The decoded operation has no supported execution case. |
-
-The step checks required pointers, the halted flag, PC alignment, and instruction
-fetch. It then decodes the word, reads the source registers, selects the operation,
-and writes the destination. The current decoder produces register numbers in
-0..31, so its register accesses pass the range checks. Unknown operations return
-from the selection step before any CPU or RAM state changes.
-
-Every non-OK result preserves CPU and RAM state. A rejected step does not set
-`halted`; the caller receives the reason and decides what to do next. These
-results describe the simulator API. Architectural trap handling is planned.
-
-With the current RAM map, a successful ADD at 0xFFFC advances PC to 0x10000.
-That instruction counts as executed. The next step returns
-`CPU_STEP_FETCH_FAILED`, preserving the state left by the successful ADD.
+`instruction_extract_fields` only extracts raw slices. The decoder selects
+ADD using opcode, funct3, and funct7; the CPU reads values and performs the work.
 
 ## Worked example: SUB
 
@@ -155,86 +82,275 @@ That instruction counts as executed. The next step returns
 sub x1, x2, x3
 ```
 
-SUB subtracts the value in x3 from the value in x2 and writes the result into x1.
-With x2 = 12 and x3 = 7, x1 becomes 5. The word is 0x403100B3, stored as
-`B3 00 31 40` in ascending RAM addresses. ADD and SUB share opcode 0x33 and
-funct3 zero; funct7 selects ADD with 0x00 and SUB with 0x20.
+With x2=12 and x3=7, x1 becomes 5. Its word is 0x403100B3. Changing ADD's
+funct7 from 0x00 to 0x20 selects SUB.
 
-The result retains its low 32 bits. With x2 = 5 and x3 = 7, x1 becomes
-0xFFFFFFFE. Those bits represent -2 as a signed two's-complement integer or
-4,294,967,294 as an unsigned integer. The core uses unsigned arithmetic to
-produce these bits with defined wraparound.
+With x2=5 and x3=7, the result is 0xFFFFFFFE. These same 32 bits represent
+-2 as signed two's complement or 4,294,967,294 as unsigned. Registers hold bits;
+the instruction determines how comparisons interpret them. ADD/SUB retain the
+low 32 bits and do not raise overflow exceptions.
 
-Source/destination overlap and x0 use the same access rules as ADD. A successful
-SUB advances PC by four bytes and increments the instruction counter. A SUB at
-the last word of RAM also completes before the following fetch fails.
+## Worked example: ADDI and sign extension
 
-### Executing a sequence
+```asm
+addi x5, x0, 12
+addi x6, x5, -1
+```
 
-With x2 = 12, x3 = 7, and PC = 0, load these words at the indicated addresses:
+The first instruction reads zero from x0 and writes 12 to x5. The second reads
+12 from x5 and adds the constant -1 from the instruction, producing 11 in x6.
 
-| Address | Word | Instruction | Effect |
-| --- | --- | --- | --- |
-| 0 | 0x003100B3 | `add x1, x2, x3` | x1 becomes 19; PC becomes 4 |
-| 4 | 0x40308233 | `sub x4, x1, x3` | x4 becomes 12; PC becomes 8 |
-
-Call `cpu_step` twice. The second call reads the x1 value produced by the first.
-The [CPU step tests](../tests/test_cpu_step.c) verify both complete CPU states
-and that RAM is preserved.
+An ordinary I-format immediate has 12 bits: -2048 through 2047. The 12-bit -1
+is 0xFFF. Sign extension repeats bit 11 into all upper bits, producing
+0xFFFFFFFF. This interpretation also applies before the unsigned comparison
+in SLTIU; for example `sltiu x1, x2, -1` compares x2 against 0xFFFFFFFF.
 
 ## Instruction formats
 
-All formats below describe layouts of a 32-bit instruction in our RV32I target.
-The base layouts are R, I, S, and U; B and J are immediate-encoding variants.
+All instructions in this target occupy four bytes. R, I, S, and U are the base
+layouts; B and J rearrange immediate fields for control transfers.
 
-| Format | Typical use | Example |
+| Format | Fields / purpose | Example |
 | --- | --- | --- |
-| R | Two source registers and a destination | `add x1, x2, x3` |
-| I | An immediate constant; also used for loads and JALR | `addi x1, x2, 7` |
-| S | Store register data into memory | `sw x3, 0(x2)` |
-| B | Branch if a comparison is true | `beq x1, x2, loop` |
-| U | Place an immediate in the upper bits | `lui x1, 0x12345` |
-| J | Jump and save a return address | `jal x1, function` |
+| R | rd, rs1, rs2; two register inputs | `add x1, x2, x3` |
+| I | rd, rs1, constant; arithmetic, loads, JALR | `addi x1, x2, 7` |
+| S | rs1 base, rs2 data, constant offset | `sw x3, 0(x2)` |
+| B | rs1, rs2, PC-relative offset | `beq x1, x2, -8` |
+| U | rd, upper 20 bits | `lui x1, 0x12345` |
+| J | rd, PC-relative offset | `jal x1, 16` |
 
-In `addi x1, x2, 7`, the number 7 is an immediate value inside the instruction.
-In `add x1, x2, x3`, the second source value comes from register x3.
+Bit layouts, most significant bit first:
 
-Some formats reuse the same bit positions for other purposes. For example,
-bits 24-20 belong to the immediate in ADDI; interpreting them as a second source
-register would be incorrect. Our extraction structure holds raw bit slices.
-As support grows, the decoder will interpret the fields for each operation.
+```text
+R: funct7[6:0]  rs2[4:0]  rs1[4:0]  funct3  rd[4:0]   opcode
+I: imm[11:0]              rs1[4:0]  funct3  rd[4:0]   opcode
+S: imm[11:5]    rs2[4:0]  rs1[4:0]  funct3  imm[4:0]  opcode
+B: imm[12|10:5] rs2[4:0]  rs1[4:0]  funct3  imm[4:1|11] opcode
+U: imm[31:12]                              rd[4:0]   opcode
+J: imm[20|10:1|11|19:12]                    rd[4:0]   opcode
+```
 
-## Configurable RAM
+S-format splits the 12-bit offset into two parts. B and J omit offset bit zero,
+which is always zero. The decoder reconstructs the parts and sign-extends the
+result. B spans -4096..4094 bytes; J spans -1,048,576..1,048,574 bytes.
+Our target has no compressed instructions, so a taken target must also align to
+four bytes. An encoded two-byte offset can therefore produce an alignment trap.
 
-The current implementation provides a fixed 64 KiB region. Configurable capacity
-is approved planned work, including explicit size units, allocation and bounds
-checks, program-fit validation, and saving the choice in project settings.
+I-format shifts use a five-bit shift amount, 0..31, and additional operation
+selector bits. Raw bits 24..20 are not a second register input in ADDI. Always
+interpret extracted slices using the decoded format.
 
-## Planned application help
+LUI puts its 20-bit operand in bits 31..12; the low 12 bits become zero.
+`lui x1, 0x12345` writes 0x12345000. AUIPC adds that value to the address
+of the AUIPC instruction, retaining the low 32 bits.
 
-- Command-line `--help` for commands, options, and examples.
-- A searchable help section accessible through the desktop Help menu and F1.
-- Contextual help for the selected instruction, register, memory address, or error.
-- A glossary covering PC, registers, values, immediates, formats, and byte order.
-- Bit layouts and worked examples for R, I, S, B, U, and J.
-- For each supported instruction: syntax, operands, operation, state changes,
-  relevant faults, and a flowchart with before/after values.
-- Clear indication of implemented features and remaining work.
-- Help available offline with the application.
+## Supported instructions
 
-## Linker errors encountered during development
+| Family | Operations | Behavior |
+| --- | --- | --- |
+| Register arithmetic | ADD, SUB | Modulo-2^32 addition/subtraction. |
+| Register shifts | SLL, SRL, SRA | Shift amount uses only the low five bits of rs2. |
+| Register comparison | SLT, SLTU | Write 1 when less, otherwise 0; signed/unsigned respectively. |
+| Register logic | XOR, OR, AND | Bitwise operations. |
+| Immediate arithmetic | ADDI | Add a sign-extended 12-bit constant. |
+| Immediate comparison | SLTI, SLTIU | Signed/unsigned comparison against the extended constant. |
+| Immediate logic | XORI, ORI, ANDI | Bitwise operation with an extended constant. |
+| Immediate shifts | SLLI, SRLI, SRAI | Shift by an encoded amount from 0 through 31. |
+| Upper immediate | LUI, AUIPC | Set upper bits, or add them to the current PC. |
+| Jumps | JAL, JALR | Change PC and save PC+4 in rd. |
+| Equality branches | BEQ, BNE | Branch when equal / different. |
+| Signed branches | BLT, BGE | Branch when less / greater or equal. |
+| Unsigned branches | BLTU, BGEU | Same comparisons treating inputs as unsigned. |
+| Signed loads | LB, LH | Read 8 / 16 bits and sign-extend to 32. |
+| Other loads | LW, LBU, LHU | Read 32 bits, or zero-extend 8 / 16 bits. |
+| Stores | SB, SH, SW | Write the low 8 / 16 / 32 bits of rs2. |
+| Ordering | FENCE | Memory is already sequential in this machine. |
+| Environment | ECALL, EBREAK | Report an environment-call / breakpoint trap. |
 
-C identifiers are case-sensitive. A declaration, definition, and call must use
-the same spelling. `instruction_Extract_fields` and `instruction_extract_fields`
-are different names. If callers request one and the object file defines the
-other, the linker reports an undefined reference.
+SRA/SRAI fill high bits with the old sign bit. SRL/SRLI fill them with zero.
+For example, shifting 0x80000000 right by one produces 0xC0000000 arithmetically
+or 0x40000000 logically.
 
-A normal externally linked function body belongs in its implementation file.
-The header provides its declaration. See [Core Flowcharts](FLOWCHARTS.md) for the
-earlier multiple-definition example and the implemented core behavior.
+x0 reads as zero; writes discard their value. Discarding a load's destination
+does not suppress memory access or its potential faults.
+
+## RAM, loads, and stores
+
+RAM is currently fixed at 64 KiB: addresses 0x00000000 through 0x0000FFFF.
+This capacity is a teaching-machine choice. A 32-bit byte address can name
+4 GiB; it does not require that much installed RAM. Configurable capacity is
+scheduled for stage 3.
+
+`lw x9, 0(x8)` computes address = x8 + signed offset, modulo 2^32, then reads
+four bytes. `sw x7, 0(x8)` computes the same kind of address and writes x7.
+
+| Width | Alignment | Last valid start |
+| --- | --- | --- |
+| Byte | Any address | 0xFFFF |
+| Halfword | Multiple of 2 | 0xFFFE |
+| Word | Multiple of 4 | 0xFFFC |
+
+The whole access must fit. Stores validate before changing bytes. In this
+execution environment, misalignment is diagnosed before an out-of-range check.
+No rejected instruction partially updates RAM or registers.
+
+Little-endian example: SW of 0xFEDCBA98 writes `98 BA DC FE` at ascending
+addresses. An LB of the first byte produces 0xFFFFFF98, whereas LBU produces
+0x00000098. Code and data share RAM; there are no page permissions or devices.
+
+## Branches, jumps, and functions
+
+Branches add their signed offset to the branch instruction's address, not PC+4.
+An untaken branch proceeds to PC+4. Only a taken branch checks target alignment.
+
+JAL writes PC+4 into rd and sets PC to the instruction address plus the offset.
+JALR writes PC+4 and uses rs1 + offset as its target, clearing bit zero first.
+A remaining bit-one misalignment traps before writing the return address.
+When rd equals rs1, the target uses the old register value.
+
+`jal x1, offset` conventionally calls a function. `jalr x0, 0(x1)` returns
+without retaining another return address. Names ra=x1, sp=x2, a0=x10, and a7=x17
+are ABI conventions; the CPU still sees numbered registers. The call demo sets
+its own stack pointer, saves a return address on the stack, and restores it.
+
+An aligned jump outside RAM retires normally. The following instruction fetch
+faults at the new address. A misaligned target instead faults at the branch or
+jump that tried to select it.
+
+## Execution environment
+
+The simulator reports traps to its caller; it does not implement privilege
+levels, trap-vector dispatch, or CSR registers.
+
+| Condition | Cause number | Diagnostic value |
+| --- | --- | --- |
+| Misaligned instruction address | 0 | Bad PC or taken target |
+| Instruction access fault | 1 | Fetch address |
+| Illegal / unsupported instruction | 2 | Instruction word |
+| EBREAK | 3 | Breakpoint instruction address |
+| Misaligned load | 4 | Data address |
+| Load access fault | 5 | Data address |
+| Misaligned store | 6 | Data address |
+| Store access fault | 7 | Data address |
+| ECALL | 8 | Zero; teaching convention uses the user ECALL cause |
+
+For every trap, `instruction_address` is the PC of the instruction being
+attempted. The original CPU/RAM state, PC, and retirement counter are preserved.
+
+The controller implements one service: put 93 in a7 and an exit status in a0,
+then execute ECALL. This convention resembles a Linux exit service, but there
+is no Linux operating system or other syscall support. The core still reports
+ECALL as a trap; the controller records a successful program exit. ECALL does
+not retire, which explains 24 attempts and 23 retired instructions in the sum
+demo. Repeated step/run after exit does nothing until reset.
+
+EBREAK pauses at its own address and does not retire. Repeating step will
+encounter it again; use reset to restart. Breakpoint removal and advanced
+debugger resume are planned in stage 5.
+
+FENCE retires as a no-op because all memory effects are already applied in
+order. Reserved FENCE rd/rs1 and ordering fields are ignored conservatively,
+as required for the base instruction. There is no delayed I/O or multiple-hart
+ordering model.
+
+## Step results
+
+`CPU_STEP_OK` means one instruction retired. Other results distinguish halted
+state, invalid API arguments, instruction alignment/access, illegal words,
+load/store alignment/access, ECALL, and EBREAK. `cpu_step_result_name` provides
+their descriptions. Invalid arguments and an already halted CPU do not produce
+an architectural trap.
+
+A rejected CPU step does not set `halted`. The controller decides whether to
+resume or stop. The 64-bit retirement counter wraps modulo 2^64 and is not a
+clock-cycle counter.
+
+## Step record contract
+
+`cpu_step_recorded` optionally fills a `CpuStepRecord`. The record storage
+must be separate from CPU/RAM and other input state.
+
+| Fields | Interpretation |
+| --- | --- |
+| result | CPU step result, even for invalid arguments. |
+| pc_before / pc_after | Address before and after the attempt. |
+| count_before / count_after | Retirement counter before and after. |
+| fetched / instruction | Whether a word was fetched; decoded kind, format, raw fields, and immediate. |
+| rs1_value / rs2_value | Values read from raw register slices; only actual operands are meaningful. |
+| branch_taken | A completed taken branch or jump. |
+| reg.written | A destination write was attempted, including a discarded x0 write. |
+| reg.value | Computed destination value before the x0 rule. |
+| reg.before / after / changed | Architectural values and whether they differ. |
+| memory.attempted / completed | Whether a data access was requested and succeeded. |
+| memory.write / width / address | Direction, width in bytes, and effective address. |
+| memory.before / after | Raw memory value before/after a completed access; equal for loads. |
+| trap.raised / cause / instruction_address / value | Precise trap information. |
+
+Use flags before reading conditional details. A successful write can leave a
+register unchanged; x0 always remains zero. Load sign extension is reflected in
+the register result, not in the raw memory values. Records capture one attempt;
+history storage and reverse execution are stage 5.
+
+## Commands and file format
+
+| Command | Effect |
+| --- | --- |
+| step [N] | Execute up to N instructions, showing effects; default 1. |
+| run [N] | Execute until a stop or a maximum number of attempts. |
+| stop | Mark CPU halted at the prompt. A later step/run resumes. |
+| reset | Restore all initial RAM, clear registers/count/exit state, and restore entry PC. |
+| regs | Show register aliases, hexadecimal/signed/unsigned values, PC, and count. |
+| mem ADDRESS [BYTES] | Inspect 1..4096 bytes, default 32. |
+| disasm ADDRESS [COUNT] | Inspect 1..256 aligned words, default 8. |
+| help [formats\|MNEMONIC] | Show commands or contextual information. |
+| quit | Leave the monitor. |
+
+The default run limit is 100,000 attempts. `--max-steps N` changes the default;
+an explicit interactive `run N` or `step N` overrides it for that command.
+Ctrl-C requests a stop at the next instruction boundary. A limit pauses without
+discarding state. Resuming continues from the current PC. Inspection is read-only.
+
+Command numbers use decimal or a 0x hexadecimal prefix. Leading zeroes in a
+decimal number do not select octal. Negative, overflowing, and malformed numbers
+are rejected. `--entry` defaults to `--load-address`; both must be aligned,
+and entry must initially point inside the loaded program.
+
+A `.words` file is a teaching input format:
+
+```text
+# One 32-bit hexadecimal word per line. Optional 0x prefix.
+00C00293 # addi x5, x0, 12
+05D00893 # addi a7, x0, 93
+00000073 # ecall; a0 is initially zero
+```
+
+Blank lines, CRLF, a final line without newline, and # comments are accepted.
+A line is limited to 511 bytes before the newline. NUL bytes, extra tokens,
+empty programs, oversized words/images, and invalid addresses are rejected.
+The full image is validated before replacing the loaded state. RAM outside the
+image starts at zero.
+
+This format is distinct from an assembler source, Intel HEX, ELF, or a raw
+binary. Those toolchain/import workflows come in later stages. Disassembly is
+for inspection; the displayed FENCE ordering fields are descriptive output.
+
+In batch mode, shell status is a0 & 255 for program exit, 1 for a trap, 2 for an
+input/setup error, 124 for reaching the limit, and 130 for Ctrl-C. The displayed
+32-bit exit value retains all a0 bits. Use the diagnostic text to distinguish a
+program-chosen nonzero exit from a monitor error.
+
+## C source organization
+
+Public headers contain declarations and use `#pragma once`. Function bodies
+with external linkage belong in exactly one implementation file. Defining one
+in a header can cause linker multiple-definition errors even with pragma once.
+
+C identifiers are case-sensitive: `instruction_extract_fields` and
+`instruction_Extract_fields` are different symbols. A declaration, definition,
+and call must agree.
 
 ## References
 
 - [RV32I specification](https://docs.riscv.org/reference/isa/v20260120/unpriv/rv32.html)
-- [RISC-V operand field positions](https://github.com/riscv/riscv-opcodes/blob/master/arg_lut.csv)
-- [Base integer instruction encodings](https://github.com/riscv/riscv-opcodes/blob/master/extensions/rv_i)
+- [Instruction encodings](https://github.com/riscv/riscv-opcodes/blob/master/extensions/rv_i)
+- [RISC-V field positions](https://github.com/riscv/riscv-opcodes/blob/master/arg_lut.csv)

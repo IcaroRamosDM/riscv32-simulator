@@ -11,6 +11,7 @@ CPPFLAGS ?=
 CFLAGS ?=
 LDFLAGS ?=
 LDLIBS ?=
+PYTHON ?= python3
 ARGS ?=
 
 ifeq ($(MODE),debug)
@@ -28,6 +29,8 @@ endif
 
 override BUILD_DIR := build/$(MODE)
 APP_BINARY := $(BUILD_DIR)/riscv32-studio
+REFERENCE_BINARY := $(BUILD_DIR)/reference/driver
+REFERENCE_OBJECT := $(BUILD_DIR)/obj/tests/reference/driver.o
 SETTINGS_FILE := $(BUILD_DIR)/.settings
 COMPILE_FLAGS := -std=c17 -Wall -Wextra -Wpedantic -Werror $(MODE_CFLAGS) $(CFLAGS)
 PREPROCESS_FLAGS := -Iinclude $(CPPFLAGS)
@@ -43,7 +46,7 @@ APP_OBJECTS := $(patsubst %.c,$(BUILD_DIR)/obj/%.o,$(APP_SOURCE))
 TEST_OBJECTS := $(patsubst %.c,$(BUILD_DIR)/obj/%.o,$(TEST_SOURCES))
 SUPPORT_OBJECTS := $(patsubst %.c,$(BUILD_DIR)/obj/%.o,$(SUPPORT_SOURCES))
 TEST_BINARIES := $(patsubst tests/%.c,$(BUILD_DIR)/tests/%,$(TEST_SOURCES))
-ALL_OBJECTS := $(CORE_OBJECTS) $(APP_OBJECTS) $(TEST_OBJECTS) $(SUPPORT_OBJECTS)
+ALL_OBJECTS := $(REFERENCE_OBJECT) $(CORE_OBJECTS) $(APP_OBJECTS) $(TEST_OBJECTS) $(SUPPORT_OBJECTS)
 
 # A content-checked settings file also detects changed flags and removed sources.
 # Exporting values avoids inserting their contents into shell quotations.
@@ -54,7 +57,7 @@ export BUILD_SETTING_LDFLAGS := $(LINK_FLAGS)
 export BUILD_SETTING_LDLIBS := $(LDLIBS)
 export BUILD_SETTING_SOURCES := $(CORE_SOURCES) $(APP_SOURCE) $(TEST_SOURCES) $(SUPPORT_SOURCES)
 
-.PHONY: all app run test debug release sanitize check clean help FORCE
+.PHONY: all app run test cli-test reference-test debug release sanitize check clean help FORCE
 .SECONDARY: $(ALL_OBJECTS)
 
 all: $(TEST_BINARIES) $(if $(APP_SOURCE),$(APP_BINARY))
@@ -64,12 +67,23 @@ app: $(APP_BINARY)
 run: app
 	"$(APP_BINARY)" $(ARGS)
 
-test: $(TEST_BINARIES)
+test: $(TEST_BINARIES) $(APP_BINARY)
 	@test -n "$(TEST_BINARIES)" || { printf '%s\n' 'No test_*.c files found under tests/.' >&2; exit 1; }
 	@set -eu; for test_binary in $(TEST_BINARIES); do \
 		printf 'Running %s\n' "$$test_binary"; \
 		"$$test_binary"; \
 	done
+	$(PYTHON) tests/cli/check_cli.py --binary "$(APP_BINARY)"
+
+cli-test: $(APP_BINARY)
+	$(PYTHON) tests/cli/check_cli.py --binary "$(APP_BINARY)"
+
+reference-test: $(REFERENCE_BINARY)
+	$(PYTHON) tests/reference/check_unicorn.py --driver "$(REFERENCE_BINARY)"
+
+$(REFERENCE_BINARY): $(REFERENCE_OBJECT) $(CORE_OBJECTS) $(SETTINGS_FILE) Makefile
+	@mkdir -p "$(@D)"
+	$(CC) $(COMPILE_FLAGS) $(LINK_FLAGS) $(filter %.o,$^) $(LDLIBS) -o "$@"
 
 debug:
 	+$(MAKE) MODE=debug all
@@ -122,14 +136,16 @@ clean:
 help:
 	@printf '%s\n' \
 		'make                    Build tests and the application when src/main.c exists.' \
-		'make test               Build and run all independent C tests.' \
+		'make test               Run C suites and CLI process tests (requires Python 3).' \
+		'make cli-test           Run only CLI process tests.' \
+		'make reference-test     Compare with Unicorn using PYTHON from its virtual environment.' \
 		'make app                Build the application from src/main.c and the core.' \
 		'make run ARGS="..."     Build and run the application with optional arguments.' \
 		'make debug              Build with debugging information and -O0.' \
 		'make release            Build with -O2 and debugging information.' \
 		'make MODE=release test  Run tests in the optimized configuration.' \
 		'make sanitize           Run tests with AddressSanitizer and UndefinedBehaviorSanitizer.' \
-		'make check              Run debug and sanitizer tests.' \
+		'make check              Run C and CLI tests in debug and sanitizer modes.' \
 		'make clean              Remove only the build/ directory.' \
 		'make help               Show this help.' \
 		'' \

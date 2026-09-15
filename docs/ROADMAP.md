@@ -1,7 +1,7 @@
 # Development Roadmap
 
-The machine-state foundation is implemented. The stages below describe planned
-work unless an item is explicitly marked complete.
+Stages 1 and 2 are complete: the machine-state foundation, RV32I execution,
+and command-line monitor are implemented. Later stages remain planned work.
 
 ## 1. Machine-state foundation
 
@@ -26,38 +26,33 @@ The implemented behavior is illustrated in [Core Flowcharts](FLOWCHARTS.md).
 
 Completed:
 
-- Single-instruction ADD and SUB execution through `cpu_step`, using the existing fetch,
-  decoder, and checked register access functions.
-- Low-32-bit addition and subtraction, x0 behavior, and overlapping
-  source/destination support.
-- Four-byte PC advancement and a 64-bit wrapping instruction counter.
-- Distinct step results with state preservation on rejected or halted steps.
-- Tests for arithmetic boundaries, register overlap, x0, halt, null arguments,
-  PC alignment and bounds, unsupported words, instruction sequences, and execution
-  at the end of RAM with both arithmetic operations.
+- All 40 base RV32I operations with R/I/S/B/U/J immediate decoding.
+- Modulo-32-bit arithmetic, signed/unsigned comparisons, logical/arithmetic
+  shifts, upper immediates, and x0/source-destination overlap handling.
+- Byte/halfword/word loads and stores, sign extension, little-endian byte order,
+  strict natural alignment, and unchanged CPU/RAM on rejected instructions.
+- Conditional branches, jumps, return-address writes, and precise fault attribution.
+- Teaching execution environment with architectural fault records, ECALL exit
+  service (a7=93), EBREAK stop, and conservative sequential FENCE behavior.
+- Optional UI-independent step records for instructions, PC/count, register
+  and memory effects, and traps.
+- A command-line monitor with step/run/stop/reset, inspection, disassembly,
+  bounded execution, Ctrl-C, change highlighting, and offline contextual help.
+- Transactional loading of annotated instruction-word text files. This is a
+  stage-2 teaching input; ELF/raw-binary loading remains in stage 3.
+- Three self-initializing demos: arithmetic, sum loop with RAM, and a function
+  call/return with a stack frame.
+- Fourteen native C suites and thirteen CLI process checks passing in debug,
+  optimized, and address/undefined-behavior sanitizer configurations.
+- Independent comparison with Unicorn 2.1.4: 197 scenarios and 4,232 matching
+  instructions, covering every retiring base operation, deterministic random
+  sequences, and all three demos. Trap and strict-alignment semantics have
+  native tests. This is selected validation, not formal certification.
+- Updated learning guide and flowcharts for the full implemented path.
 
-Remaining, in implementation order:
-
-1. Add ADDI and signed I-format immediates, followed by the remaining integer
-   arithmetic, logical operations, comparisons, shifts, and upper immediates.
-2. Add loads and stores with format-specific offsets, byte order, sign extension,
-   alignment rules, and preservation of state on rejected accesses.
-3. Add conditional branches and jumps, including correct target computation,
-   return-address writes, and fault attribution.
-4. Define the teaching execution environment: architectural fault reports,
-   ECALL/EBREAK behavior, and FENCE handling appropriate to the machine model.
-5. Return step records containing the instruction address, decoded operation,
-   register/memory changes, and stop reason. Keep these records independent of UI.
-6. Add a minimal command-line runner with step, run, stop/reset, register/memory
-   inspection, execution limits, and `--help`.
-
-Use instruction tests, short programs, and selected comparisons with a reference
-RISC-V implementation to check the supported architecture behavior. Extend
-examples and flowcharts as each instruction family is added.
-
-Exit criterion: reproducible programs can calculate, access RAM, make decisions,
-loop, and call/return through the command-line runner. Each stop has a clear cause,
-and the full selected RV32I behavior has corresponding tests.
+Exit criterion met: reproducible programs calculate, access RAM, make decisions,
+loop, and call/return through the monitor. Stops report their cause, and the
+selected RV32I behavior has corresponding tests.
 
 ## 3. C compilation and program loading
 
@@ -185,16 +180,17 @@ and pass release acceptance tests.
 
 ## Completion milestones
 
-- Current foundation: CPU/RAM state, checked access, fetch, field extraction,
-  and ADD/SUB stepping with tests.
+- Current foundation: complete stage-2 RV32I execution and the tested command-line
+  monitor, with demos, step records, diagnostics, and help.
 - First complete visual learning path: stages 2 through 4 connect written C to
   compiled instructions and visible machine-state changes.
 - Full product scope: the remaining debugger/history, compilation comparison,
   file/project workflows, analysis, examples, help, and distribution milestones
   are complete. Experimental decompilation keeps its explicitly documented status.
 
-The immediate next increment is ADDI and I-format immediates, with a demo that
-initializes its own register values before using ADD and SUB.
+The next stage is C compilation and program loading. Begin with configurable
+RAM and a documented memory/runtime layout, then integrate the RV32I/ILP32
+toolchain, ELF loading, and instruction-to-C source mapping.
 
 ## References
 
