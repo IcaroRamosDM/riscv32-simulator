@@ -12,8 +12,9 @@ enum
   INSTRUCTION_RS2_SHIFT = 20,
   INSTRUCTION_FUNCT7_SHIFT = 25,
   INSTRUCTION_OPCODE_OP = 0x33,
-  INSTRUCTION_ADD_FUNCT3 = 0x00,
-  INSTRUCTION_ADD_FUNCT7 = 0x00
+  INSTRUCTION_ADD_SUB_FUNCT3 = 0x00,
+  INSTRUCTION_ADD_FUNCT7 = 0x00,
+  INSTRUCTION_SUB_FUNCT7 = 0x20
 };
 
 InstructionFields instruction_extract_fields(uint32_t word)
@@ -42,10 +43,16 @@ DecodedInstruction instruction_decode(uint32_t word)
   };
 
   if (decoded.fields.opcode == INSTRUCTION_OPCODE_OP
-      && decoded.fields.funct3 == INSTRUCTION_ADD_FUNCT3
-      && decoded.fields.funct7 == INSTRUCTION_ADD_FUNCT7)
+      && decoded.fields.funct3 == INSTRUCTION_ADD_SUB_FUNCT3)
   {
-    decoded.kind = INSTRUCTION_ADD;
+    if (decoded.fields.funct7 == INSTRUCTION_ADD_FUNCT7)
+    {
+      decoded.kind = INSTRUCTION_ADD;
+    }
+    else if (decoded.fields.funct7 == INSTRUCTION_SUB_FUNCT7)
+    {
+      decoded.kind = INSTRUCTION_SUB;
+    }
   }
 
   return decoded;

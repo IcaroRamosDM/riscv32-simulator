@@ -1,4 +1,5 @@
 #include <assert.h>
+#include <inttypes.h>
 #include <stddef.h>
 #include <stdio.h>
 
@@ -15,7 +16,13 @@ static void test_instruction_decode(void)
     {INSTRUCTION_ADD, {UINT32_C(0x003100B3), 0x33, 1, 0, 2, 3, 0}},
     {INSTRUCTION_ADD, {UINT32_C(0x00000033), 0x33, 0, 0, 0, 0, 0}},
     {INSTRUCTION_ADD, {UINT32_C(0x01FF8FB3), 0x33, 31, 0, 31, 31, 0}},
-    {INSTRUCTION_UNKNOWN, {UINT32_C(0x403100B3), 0x33, 1, 0, 2, 3, 0x20}},
+    {INSTRUCTION_SUB, {UINT32_C(0x403100B3), 0x33, 1, 0, 2, 3, 0x20}},
+    {INSTRUCTION_SUB, {UINT32_C(0x40000033), 0x33, 0, 0, 0, 0, 0x20}},
+    {INSTRUCTION_SUB, {UINT32_C(0x41FF8FB3), 0x33, 31, 0, 31, 31, 0x20}},
+    {INSTRUCTION_UNKNOWN, {UINT32_C(0x403110B3), 0x33, 1, 1, 2, 3, 0x20}},
+    {INSTRUCTION_UNKNOWN, {UINT32_C(0xC03100B3), 0x33, 1, 0, 2, 3, 0x60}},
+    {INSTRUCTION_UNKNOWN, {UINT32_C(0x40310093), 0x13, 1, 0, 2, 3, 0x20}},
+    {INSTRUCTION_UNKNOWN, {UINT32_C(0x403100B2), 0x32, 1, 0, 2, 3, 0x20}},
     {INSTRUCTION_UNKNOWN, {UINT32_C(0x003110B3), 0x33, 1, 1, 2, 3, 0}},
     {INSTRUCTION_UNKNOWN, {UINT32_C(0x023100B3), 0x33, 1, 0, 2, 3, 1}},
     {INSTRUCTION_UNKNOWN, {UINT32_C(0x00310093), 0x13, 1, 0, 2, 3, 0}},
@@ -29,6 +36,12 @@ static void test_instruction_decode(void)
     const InstructionFields *expected = &cases[index].fields;
     const DecodedInstruction decoded = instruction_decode(expected->raw);
 
+    if (decoded.kind != cases[index].kind)
+    {
+      fprintf(stderr, "Decode case %zu, word 0x%08" PRIX32
+          ": expected kind %d, got %d\n",
+          index, expected->raw, (int)cases[index].kind, (int)decoded.kind);
+    }
     assert(decoded.kind == cases[index].kind);
     assert(decoded.fields.raw == expected->raw);
     assert(decoded.fields.opcode == expected->opcode);

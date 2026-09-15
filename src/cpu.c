@@ -67,10 +67,6 @@ CpuStepResult cpu_step(Cpu *cpu, Memory *memory)
   }
 
   const DecodedInstruction decoded = instruction_decode(word);
-  if (decoded.kind != INSTRUCTION_ADD)
-  {
-    return CPU_STEP_UNKNOWN_INSTRUCTION;
-  }
 
   uint32_t left;
   uint32_t right;
@@ -80,7 +76,21 @@ CpuStepResult cpu_step(Cpu *cpu, Memory *memory)
     return CPU_STEP_INVALID_ARGUMENT;
   }
 
-  const uint32_t result = (uint32_t)((uint64_t)left + right);
+  uint32_t result;
+  switch (decoded.kind)
+  {
+    case INSTRUCTION_ADD:
+      result = (uint32_t)((uint64_t)left + right);
+      break;
+
+    case INSTRUCTION_SUB:
+      result = (uint32_t)((uint64_t)left - right);
+      break;
+
+    default:
+      return CPU_STEP_UNKNOWN_INSTRUCTION;
+  }
+
   if (!cpu_write_register(cpu, decoded.fields.rd, result))
   {
     return CPU_STEP_INVALID_ARGUMENT;

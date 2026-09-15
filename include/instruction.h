@@ -5,7 +5,8 @@
 typedef enum InstructionKind
 {
   INSTRUCTION_UNKNOWN = 0,
-  INSTRUCTION_ADD
+  INSTRUCTION_ADD,
+  INSTRUCTION_SUB
 } InstructionKind;
 
 // Raw bit slices; the instruction format determines their meaning.

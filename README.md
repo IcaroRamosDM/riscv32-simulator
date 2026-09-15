@@ -4,7 +4,7 @@ An educational desktop simulator being developed to connect C source code,
 RISC-V assembly, registers, and memory through instruction-by-instruction execution.
 
 The project targets RV32I and uses a C17 simulator core. The current core can
-execute ADD one instruction at a time. Other instructions, C compilation, file
+execute ADD and SUB one instruction at a time. Other instructions, C compilation, file
 loading, and the graphical interface are planned work.
 
 ## Implemented
@@ -17,8 +17,8 @@ loading, and the graphical interface are planned work.
   reads and writes, using little-endian byte order and natural alignment.
 - Read-only instruction fetch using the program counter, including while halted.
 - Raw instruction-field extraction with preservation of the original word.
-- ADD recognition using opcode, funct3, and funct7, with unknown words preserved.
-- Single-instruction ADD execution with register updates, PC advancement,
+- ADD and SUB recognition using opcode, funct3, and funct7, with unknown words preserved.
+- Single-instruction ADD and SUB execution with register updates, PC advancement,
   instruction counting, and explicit results for rejected steps.
 - Independent tests for CPU reset, registers, RAM, fetch, fields, decoding,
   and execution.
@@ -138,7 +138,7 @@ on failure. It returns `false` for null required pointers, misaligned PC values,
 or addresses where four bytes do not fit inside RAM.
 
 Fetch does not determine whether the word encodes a valid instruction. The
-separate decoder recognizes ADD, and `cpu_step` combines fetch, decoding, and
+separate decoder recognizes ADD and SUB, and `cpu_step` combines fetch, decoding, and
 execution. Architectural trap handling remains planned work. See the [fetch flowchart](docs/FLOWCHARTS.md#5-instruction-fetch).
 
 ### Instruction fields
@@ -152,18 +152,21 @@ See the [worked ADD example](docs/HELP.md#worked-example-add).
 ### Instruction decoding
 
 `instruction_decode` returns an operation kind together with the original word
-and its extracted fields. ADD is recognized only when opcode, funct3, and funct7
-all match its encoding. Other words return `INSTRUCTION_UNKNOWN`; this includes
-valid instructions that this decoder does not support yet, such as SUB and ADDI.
+and its extracted fields. ADD and SUB require opcode 0x33 and funct3 zero;
+funct7 must be 0x00 for ADD or 0x20 for SUB. Other words return
+`INSTRUCTION_UNKNOWN`; this includes valid instructions that this decoder does
+not support yet, such as SLL and ADDI.
 Decoding does not read or modify CPU or RAM state.
 
 ### Instruction stepping
 
-`cpu_step` attempts one instruction and currently supports ADD. It checks required
-pointers, the halted flag, PC alignment, fetch success, and the decoded operation
-before execution. Both source registers are read before the destination is
-written, so the destination may also be a source. The sum retains its low 32 bits;
-a write to x0 succeeds and discards the result.
+`cpu_step` attempts one instruction and currently supports ADD and SUB. It checks
+required pointers, the halted flag, PC alignment, and fetch success, then decodes
+the word and reads both source registers. A switch selects addition or subtraction;
+unsupported operations return before any state change. Both operands are read
+before the destination is written, so the destination may also be a source.
+Each arithmetic result retains its low 32 bits. A write to x0 succeeds and
+discards the result.
 
 On success, PC advances by four bytes modulo 2^32, the instruction counter
 increments modulo 2^64, and the function returns `CPU_STEP_OK`. Other registers,
@@ -177,7 +180,7 @@ results; architectural trap handling is not implemented. See the
 [step result guide](docs/HELP.md#step-results) and the
 [execution flowchart](docs/FLOWCHARTS.md#9-single-instruction-execution).
 
-An ADD at the last word of RAM executes successfully. PC then points just beyond
+An ADD or SUB at the last word of RAM executes successfully. PC then points just beyond
 RAM, and the next step returns `CPU_STEP_FETCH_FAILED` without changing state.
 
 ## Layout

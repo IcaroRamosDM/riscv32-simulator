@@ -93,7 +93,7 @@ or write 12 into x1. Those actions belong to the implemented `cpu_step` function
 `instruction_decode(0x003100B3)` returns `INSTRUCTION_ADD` and the extracted
 fields. It checks all three operation selectors: opcode must be `0x33`, funct3
 must be zero, and funct7 must be zero. Changing funct7 to `0x20` produces SUB,
-which the current decoder reports as `INSTRUCTION_UNKNOWN`.
+which the decoder recognizes as `INSTRUCTION_SUB`.
 
 Unknown means unrecognized by the current implementation. It does not by itself
 prove that the word is invalid RV32I. Decoding preserves the raw word and fields
@@ -120,7 +120,7 @@ discarded, but a successful instruction still advances PC and the counter.
 The simulator's instruction counter wraps from UINT64_MAX to zero. It counts
 successful instructions, not clock cycles.
 
-RAM is unchanged by the current ADD implementation. Fetch and decode are also
+RAM is unchanged by the current ADD and SUB implementations. Fetch and decode are also
 available separately for inspection. The full [execution flowchart](FLOWCHARTS.md#9-single-instruction-execution)
 shows the checks performed by `cpu_step`.
 
@@ -128,17 +128,18 @@ shows the checks performed by `cpu_step`.
 
 | Result | Meaning |
 | --- | --- |
-| `CPU_STEP_OK` | One ADD executed successfully. |
+| `CPU_STEP_OK` | One supported instruction executed successfully. |
 | `CPU_STEP_HALTED` | The CPU was already halted; no instruction was attempted. |
 | `CPU_STEP_INVALID_ARGUMENT` | A required pointer was null or a register access was rejected. |
 | `CPU_STEP_MISALIGNED_PC` | PC was not a multiple of four bytes. |
 | `CPU_STEP_FETCH_FAILED` | The instruction word could not be read from RAM. |
-| `CPU_STEP_UNKNOWN_INSTRUCTION` | The current decoder did not recognize the word. |
+| `CPU_STEP_UNKNOWN_INSTRUCTION` | The decoded operation has no supported execution case. |
 
-Checks occur in this order: required pointers, halted flag, PC alignment,
-instruction fetch, operation identification, and register accesses. The current
-decoder produces register numbers in 0..31, so its register accesses pass the
-range checks.
+The step checks required pointers, the halted flag, PC alignment, and instruction
+fetch. It then decodes the word, reads the source registers, selects the operation,
+and writes the destination. The current decoder produces register numbers in
+0..31, so its register accesses pass the range checks. Unknown operations return
+from the selection step before any CPU or RAM state changes.
 
 Every non-OK result preserves CPU and RAM state. A rejected step does not set
 `halted`; the caller receives the reason and decides what to do next. These
@@ -147,6 +148,39 @@ results describe the simulator API. Architectural trap handling is planned.
 With the current RAM map, a successful ADD at 0xFFFC advances PC to 0x10000.
 That instruction counts as executed. The next step returns
 `CPU_STEP_FETCH_FAILED`, preserving the state left by the successful ADD.
+
+## Worked example: SUB
+
+```asm
+sub x1, x2, x3
+```
+
+SUB subtracts the value in x3 from the value in x2 and writes the result into x1.
+With x2 = 12 and x3 = 7, x1 becomes 5. The word is 0x403100B3, stored as
+`B3 00 31 40` in ascending RAM addresses. ADD and SUB share opcode 0x33 and
+funct3 zero; funct7 selects ADD with 0x00 and SUB with 0x20.
+
+The result retains its low 32 bits. With x2 = 5 and x3 = 7, x1 becomes
+0xFFFFFFFE. Those bits represent -2 as a signed two's-complement integer or
+4,294,967,294 as an unsigned integer. The core uses unsigned arithmetic to
+produce these bits with defined wraparound.
+
+Source/destination overlap and x0 use the same access rules as ADD. A successful
+SUB advances PC by four bytes and increments the instruction counter. A SUB at
+the last word of RAM also completes before the following fetch fails.
+
+### Executing a sequence
+
+With x2 = 12, x3 = 7, and PC = 0, load these words at the indicated addresses:
+
+| Address | Word | Instruction | Effect |
+| --- | --- | --- | --- |
+| 0 | 0x003100B3 | `add x1, x2, x3` | x1 becomes 19; PC becomes 4 |
+| 4 | 0x40308233 | `sub x4, x1, x3` | x4 becomes 12; PC becomes 8 |
+
+Call `cpu_step` twice. The second call reads the x1 value produced by the first.
+The [CPU step tests](../tests/test_cpu_step.c) verify both complete CPU states
+and that RAM is preserved.
 
 ## Instruction formats
 

@@ -22,8 +22,8 @@ flowchart TD
     RAM -->|"Four validated bytes"| FETCH
     FETCH --> WORD["32-bit word available to the caller"]
     WORD --> FIELDS["Extract raw instruction fields"]
-    FIELDS --> DEC["Identify ADD or report an unknown operation"]
-    DEC --> EXEC["For ADD: read operands, add, and write the destination"]
+    FIELDS --> DEC["Identify ADD, SUB, or an unknown operation"]
+    DEC --> EXEC["For ADD or SUB: read operands, calculate, and write the destination"]
     EXEC --> ADVANCE["Advance PC by 4; increment instruction count"]
     CALL --> STEP["cpu_step: validate and attempt one instruction"]
     STEP --> FETCH
@@ -180,10 +180,11 @@ In this example, the extracted rs1 value of 2 selects x2; it is not the value
 stored in x2. The same instruction encoding can produce different results when
 the source register contents change. See the [worked example](HELP.md#worked-example-add).
 
-## 8. ADD recognition
+## 8. ADD and SUB recognition
 
-`instruction_decode` extracts the fields and starts with an unknown operation.
-Only a match on all three operation selectors identifies ADD.
+`instruction_decode` preserves the raw fields and starts with an unknown
+operation. The opcode and funct3 select the shared group; the full funct7 field
+distinguishes ADD from SUB.
 
 ```mermaid
 flowchart TD
@@ -193,15 +194,17 @@ flowchart TD
     OPCODE -->|"No"| RETURN["Return kind and preserved fields"]
     OPCODE -->|"Yes"| F3{"funct3 = 0?"}
     F3 -->|"No"| RETURN
-    F3 -->|"Yes"| F7{"funct7 = 0?"}
-    F7 -->|"No"| RETURN
-    F7 -->|"Yes"| ADD["Set kind to INSTRUCTION_ADD"]
+    F3 -->|"Yes"| F7{"funct7 value?"}
+    F7 -->|"0x00"| ADD["Set kind to INSTRUCTION_ADD"]
+    F7 -->|"0x20"| SUB["Set kind to INSTRUCTION_SUB"]
+    F7 -->|"Other"| RETURN
     ADD --> RETURN
+    SUB --> RETURN
 ```
 
-The three checks form one AND condition. Register numbers do not change the
-operation kind. Unknown includes valid operations that are not implemented yet;
-it is not an architectural illegal-instruction verdict. CPU and RAM are unchanged.
+Register numbers do not change the operation kind. Unknown includes valid
+operations that are not implemented yet; it is not an architectural
+illegal-instruction verdict. CPU and RAM are unchanged.
 
 ## 9. Single-instruction execution
 
@@ -219,13 +222,16 @@ flowchart TD
     FETCH --> FETCH_OK{"Fetch succeeded?"}
     FETCH_OK -->|"No"| FETCH_FAIL["CPU_STEP_FETCH_FAILED"]
     FETCH_OK -->|"Yes"| DECODE["instruction_decode"]
-    DECODE --> SUPPORTED{"Instruction is ADD?"}
-    SUPPORTED -->|"No"| UNKNOWN["CPU_STEP_UNKNOWN_INSTRUCTION"]
-    SUPPORTED -->|"Yes"| READ["Read rs1 and rs2 with cpu_read_register"]
+    DECODE --> READ["Read rs1 and rs2 with cpu_read_register"]
     READ --> READ_OK{"Both reads succeeded?"}
     READ_OK -->|"No"| ARG
-    READ_OK -->|"Yes"| SUM["Add values using a 64-bit intermediate; retain 32 bits"]
-    SUM --> WRITE["cpu_write_register: write rd or discard for x0"]
+    READ_OK -->|"Yes"| KIND{"Decoded operation?"}
+    KIND -->|"ADD"| ADD["Add the operand values"]
+    KIND -->|"SUB"| SUB["Subtract rs2 from rs1"]
+    KIND -->|"Other"| UNKNOWN["CPU_STEP_UNKNOWN_INSTRUCTION"]
+    ADD --> RESULT["Retain the low 32 bits"]
+    SUB --> RESULT
+    RESULT --> WRITE["cpu_write_register: write rd or discard for x0"]
     WRITE --> WRITE_OK{"Write succeeded?"}
     WRITE_OK -->|"No"| ARG
     WRITE_OK -->|"Yes"| PC["Advance PC by 4 modulo 2^32"]
@@ -241,13 +247,13 @@ flowchart TD
 The register helpers reject invalid accesses before any write. The current
 decoder always produces indices in 0..31. Once the destination write succeeds,
 only PC advancement and counter increment remain; both have defined wrapping
-behavior. There is no later failure path in the ADD step.
+behavior. Neither arithmetic operation has a later failure path.
 
 Both operands are read before the destination changes, allowing rd to equal
 rs1 or rs2. A discarded x0 write still counts as a successful instruction.
 RAM and the halted flag are unchanged for every result.
 
-At the end of RAM, an ADD beginning at 0xFFFC executes and advances PC to
-0x10000. The following step reports a fetch failure without changing state.
+At the end of RAM, an ADD or SUB beginning at 0xFFFC executes and advances PC
+to 0x10000. The following step reports a fetch failure without changing state.
 These results are simulator diagnostics; architectural trap handling and an
 application execution loop remain planned work.

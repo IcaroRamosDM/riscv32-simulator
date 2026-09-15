@@ -29,7 +29,7 @@ static void test_cpu_reset(void)
   assert(!cpu.halted);
 }
 
-int main (void)
+int main(void)
 {
   test_cpu_reset();
 
