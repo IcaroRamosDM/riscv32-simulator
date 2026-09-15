@@ -11,13 +11,18 @@ Completed:
 - Separate debug, optimized, and sanitizer configurations.
 - CPU state, reset, and checked access to all 32 registers.
 - Zero-register behavior through the register access API.
-- Separate 64 KiB RAM with reset and checked byte access.
+- Separate 64 KiB RAM with reset and checked 8-bit, 16-bit, and 32-bit access.
+- Little-endian multi-byte access with natural alignment and full-range checks.
+- Preservation of output values and RAM on rejected accesses.
+- Read-only 32-bit instruction fetch through the program counter, with alignment
+  and bounds validation and support for inspection while halted.
 
 Next:
 
-- Add checked 16-bit and 32-bit little-endian memory access.
-- Define alignment and access-fault behavior.
-- Fetch 32-bit instructions from memory using the program counter.
+- Decode instruction fields and identify supported operations.
+- Add execution, program-counter updates, and CPU traps in the next stage.
+
+The implemented behavior is illustrated in [Core Flowcharts](FLOWCHARTS.md).
 
 ## 2. RV32I execution
 

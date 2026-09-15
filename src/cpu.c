@@ -31,3 +31,13 @@ bool cpu_write_register(Cpu *cpu, size_t index, uint32_t value)
 
   return true;
 }
+
+bool cpu_fetch_instruction(const Cpu *cpu, const Memory *memory, uint32_t *instruction)
+{
+  if (cpu == NULL)
+  {
+    return false;
+  }
+
+  return memory_read_u32(memory, cpu->program_counter, instruction);
+}

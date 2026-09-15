@@ -13,11 +13,14 @@ loading, and the graphical interface are planned work.
   halted flag.
 - CPU reset and checked register access. Reads of `x0` return zero; writes to
   `x0` succeed and discard the value.
-- A separate 64 KiB RAM object with reset and checked byte reads and writes.
-- Independent tests for CPU reset, register access, and RAM access.
+- A separate 64 KiB RAM object with reset and checked 8-bit, 16-bit, and 32-bit
+  reads and writes, using little-endian byte order and natural alignment.
+- Read-only instruction fetch using the program counter, including while halted.
+- Independent tests for CPU reset, register access, RAM access, and instruction fetch.
 - Debug, optimized, and sanitizer build configurations.
 
-The development roadmap is in [docs/ROADMAP.md](docs/ROADMAP.md).
+See the [development roadmap](docs/ROADMAP.md) and the
+[core flowcharts](docs/FLOWCHARTS.md) for the current design and next stages.
 
 ## Build and test
 
@@ -39,8 +42,10 @@ Each configuration should report:
 
 ```text
 CPU reset tests passed.
+CPU fetch tests passed.
 CPU register tests passed.
 Memory tests passed.
+Memory word tests passed.
 ```
 
 The tests cover the implemented APIs; passing them does not establish complete
@@ -92,11 +97,16 @@ state inspection, but direct field writes bypass the access rules.
 ### RAM
 
 `Memory` contains 65,536 bytes mapped from `0x00000000` through `0x0000FFFF`.
-This capacity is an initial simulator configuration; the address parameter
-remains 32 bits wide.
+The 64 KiB capacity keeps the initial machine model and test snapshots small.
+It is a simulator configuration choice. RV32I uses a 32-bit byte-addressed
+space, which can represent 4 GiB of addresses; that does not require 4 GiB
+of installed RAM. Addresses outside the configured RAM currently fail access
+validation. Larger or configurable RAM can be introduced with the program
+loader, including a review of storage allocation and the memory map.
 
-`memory_reset` clears every byte. `memory_read_u8` and `memory_write_u8` return
-`false` for null required pointers or addresses outside this range. Validation
+`memory_reset` clears every byte. The `memory_read_u8/u16/u32` and
+`memory_write_u8/u16/u32` functions return `false` for null required pointers,
+misaligned addresses, or accesses that do not fit entirely inside RAM. Validation
 happens before indexing the array, and rejected accesses leave RAM and any
 provided output value unchanged.
 
@@ -105,8 +115,21 @@ Access functions accept valid object pointers or null; they cannot validate
 arbitrary dangling pointers. Read outputs should point to separate writable
 storage.
 
-Multi-byte memory access, byte-order handling, and instruction fetch are the
-next implementation steps.
+Multi-byte accesses use little-endian byte order and require natural alignment:
+16-bit accesses start at multiples of 2, and 32-bit accesses start at multiples
+of 4. Byte accesses have no additional alignment requirement. For example,
+writing `0xFEDCBA98` stores `98 BA DC FE` in ascending address order.
+
+### Instruction fetch
+
+`cpu_fetch_instruction` reads the 32-bit word at the program counter. It
+preserves CPU and RAM state, works while halted, and leaves its output unchanged
+on failure. It returns `false` for null required pointers, misaligned PC values,
+or addresses where four bytes do not fit inside RAM.
+
+Fetch does not determine whether the word encodes a valid instruction. Decoding,
+instruction execution, program-counter updates, and CPU trap reporting remain
+later work. See the [fetch flowchart](docs/FLOWCHARTS.md#5-instruction-fetch).
 
 ## Layout
 
@@ -114,7 +137,7 @@ next implementation steps.
 include/       Public C headers
 src/           Core implementations
 tests/         Independent test programs
-docs/          Development roadmap
+docs/          Development roadmap and core flowcharts
 Makefile       Build and test targets
 ```
 

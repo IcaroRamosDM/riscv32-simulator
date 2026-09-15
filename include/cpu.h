@@ -4,6 +4,8 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include "memory.h"
+
 enum
 {
   CPU_ZERO_REGISTER = 0,
@@ -21,3 +23,5 @@ typedef struct Cpu
 void cpu_reset(Cpu *cpu);
 bool cpu_read_register(const Cpu *cpu, size_t index, uint32_t *value);
 bool cpu_write_register(Cpu *cpu, size_t index, uint32_t value);
+
+bool cpu_fetch_instruction(const Cpu *cpu, const Memory *memory, uint32_t *instruction);
