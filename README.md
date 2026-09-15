@@ -4,7 +4,7 @@ An educational desktop simulator being developed to connect C source code,
 RISC-V assembly, registers, and memory through instruction-by-instruction execution.
 
 The project targets RV32I and uses a C17 simulator core. It is currently at the
-machine-state foundation stage: instruction execution, C compilation, file
+machine-state and instruction-decoding stage: instruction execution, C compilation, file
 loading, and the graphical interface are planned work.
 
 ## Implemented
@@ -16,11 +16,14 @@ loading, and the graphical interface are planned work.
 - A separate 64 KiB RAM object with reset and checked 8-bit, 16-bit, and 32-bit
   reads and writes, using little-endian byte order and natural alignment.
 - Read-only instruction fetch using the program counter, including while halted.
-- Independent tests for CPU reset, register access, RAM access, and instruction fetch.
+- Raw instruction-field extraction with preservation of the original word.
+- ADD recognition using opcode, funct3, and funct7, with unknown words preserved.
+- Independent tests for CPU reset, registers, RAM, fetch, fields, and decoding.
 - Debug, optimized, and sanitizer build configurations.
 
 See the [development roadmap](docs/ROADMAP.md) and the
 [core flowcharts](docs/FLOWCHARTS.md) for the current design and next stages.
+The [learning guide](docs/HELP.md) explains formats, register values, and encoding.
 
 ## Build and test
 
@@ -44,6 +47,8 @@ Each configuration should report:
 CPU reset tests passed.
 CPU fetch tests passed.
 CPU register tests passed.
+Instruction decode tests passed.
+Instruction field tests passed.
 Memory tests passed.
 Memory word tests passed.
 ```
@@ -101,8 +106,9 @@ The 64 KiB capacity keeps the initial machine model and test snapshots small.
 It is a simulator configuration choice. RV32I uses a 32-bit byte-addressed
 space, which can represent 4 GiB of addresses; that does not require 4 GiB
 of installed RAM. Addresses outside the configured RAM currently fail access
-validation. Larger or configurable RAM can be introduced with the program
-loader, including a review of storage allocation and the memory map.
+validation. Configurable RAM capacity is planned with the program loader,
+including explicit units, allocation limits, program-fit checks, and a saved
+project setting. The implementation currently remains fixed at 64 KiB.
 
 `memory_reset` clears every byte. The `memory_read_u8/u16/u32` and
 `memory_write_u8/u16/u32` functions return `false` for null required pointers,
@@ -127,9 +133,25 @@ preserves CPU and RAM state, works while halted, and leaves its output unchanged
 on failure. It returns `false` for null required pointers, misaligned PC values,
 or addresses where four bytes do not fit inside RAM.
 
-Fetch does not determine whether the word encodes a valid instruction. Decoding,
-instruction execution, program-counter updates, and CPU trap reporting remain
-later work. See the [fetch flowchart](docs/FLOWCHARTS.md#5-instruction-fetch).
+Fetch does not determine whether the word encodes a valid instruction. The
+separate decoder currently recognizes ADD. Instruction execution, program-counter
+updates, and CPU trap reporting remain later work. See the [fetch flowchart](docs/FLOWCHARTS.md#5-instruction-fetch).
+
+### Instruction fields
+
+`instruction_extract_fields` returns the original 32-bit word and raw slices
+for opcode, rd, funct3, rs1, rs2, and funct7. It accepts every 32-bit pattern
+and does not determine instruction validity or access CPU state. The format
+determines which slices represent registers, constants, or operation selectors.
+See the [worked ADD example](docs/HELP.md#worked-example-add).
+
+### Instruction decoding
+
+`instruction_decode` returns an operation kind together with the original word
+and its extracted fields. ADD is recognized only when opcode, funct3, and funct7
+all match its encoding. Other words return `INSTRUCTION_UNKNOWN`; this includes
+valid instructions that this decoder does not support yet, such as SUB and ADDI.
+Decoding does not read or modify CPU or RAM state.
 
 ## Layout
 
@@ -137,7 +159,7 @@ later work. See the [fetch flowchart](docs/FLOWCHARTS.md#5-instruction-fetch).
 include/       Public C headers
 src/           Core implementations
 tests/         Independent test programs
-docs/          Development roadmap and core flowcharts
+docs/          Learning guide, roadmap, and core flowcharts
 Makefile       Build and test targets
 ```
 

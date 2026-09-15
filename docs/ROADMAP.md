@@ -16,11 +16,15 @@ Completed:
 - Preservation of output values and RAM on rejected accesses.
 - Read-only 32-bit instruction fetch through the program counter, with alignment
   and bounds validation and support for inspection while halted.
+- Raw instruction-field extraction with known-word and field-isolation tests.
+- ADD recognition with all operation selectors checked; unknown words retain
+  their original encoding and fields.
 
 Next:
 
-- Decode instruction fields and identify supported operations.
-- Add execution, program-counter updates, and CPU traps in the next stage.
+- Execute ADD with register access, program-counter updates, and step results.
+- Extend decoding to other operations and format-specific immediate fields.
+- Add CPU trap handling during the execution stage.
 
 The implemented behavior is illustrated in [Core Flowcharts](FLOWCHARTS.md).
 
@@ -32,10 +36,13 @@ The implemented behavior is illustrated in [Core Flowcharts](FLOWCHARTS.md).
 - Test arithmetic boundaries, branches, jumps, loads, stores, and invalid
   instructions against the selected architecture behavior.
 - Add a minimal command-line runner and reproducible example programs.
+- Provide command-line help with syntax, options, examples, and diagnostic guidance.
 
 ## 3. C compilation and program loading
 
 - Integrate a RISC-V C toolchain and define the supported runtime environment.
+- Add configurable RAM capacity with explicit size units, allocation and bounds
+  checks, program-fit validation, and persistence in project settings.
 - Load ELF programs with entry points, sections, symbols, and debug information.
 - Map instruction addresses to C source locations when information is available.
 - Explain unmapped instructions and source lines without executable code.
@@ -50,6 +57,11 @@ The implemented behavior is illustrated in [Core Flowcharts](FLOWCHARTS.md).
 - Highlight register and memory changes with color and before/after values.
 - Support hexadecimal, decimal, and binary views, contextual explanations,
   progressive detail, and accessible presentation.
+- Provide searchable offline help through the Help menu and F1, plus contextual
+  explanations for the selected instruction, register, address, or error.
+- Cover R, I, S, B, U, and J layouts, a glossary, worked examples, before/after
+  values, and per-instruction flowcharts. The [learning guide](HELP.md) is the
+  initial reference for this content.
 
 ## 5. Debugging and execution history
 

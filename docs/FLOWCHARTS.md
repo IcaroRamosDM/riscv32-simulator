@@ -21,7 +21,8 @@ flowchart TD
     CPU -->|"PC supplies the address"| FETCH
     RAM -->|"Four validated bytes"| FETCH
     FETCH --> WORD["32-bit word available to the caller"]
-    WORD -.-> DEC["Planned: decode the instruction"]
+    WORD --> FIELDS["Extract raw instruction fields"]
+    FIELDS --> DEC["Identify ADD or report an unknown operation"]
     DEC -.-> EXEC["Planned: execute and update machine state"]
 ```
 
@@ -154,3 +155,45 @@ can cause a multiple-definition linker error.
 
 `#pragma once` prevents repeated inclusion within a translation unit; it does
 not combine function definitions emitted by different C source files.
+
+## 7. Instruction field extraction
+
+This function receives a word by value and returns its raw bits and extracted
+fields. It does not access CPU or RAM objects.
+
+```mermaid
+flowchart TD
+    WORD["32-bit word: 0x003100B3"] --> EXTRACT["instruction_extract_fields"]
+    EXTRACT --> FIELDS["raw preserved; rd=1, rs1=2, rs2=3; opcode and function fields"]
+    FIELDS --> IDENTIFY["Identify ADD from opcode, funct3, and funct7"]
+    IDENTIFY -.-> READ["Planned: read x2 and x3; example values 5 and 7"]
+    READ -.-> ADD["Planned: add the values"]
+    ADD -.-> WRITE["Planned: write 12 into x1"]
+```
+
+In this example, the extracted rs1 value of 2 selects x2; it is not the value
+stored in x2. The same instruction encoding can produce different results when
+the source register contents change. See the [worked example](HELP.md#worked-example-add).
+
+## 8. ADD recognition
+
+`instruction_decode` extracts the fields and starts with an unknown operation.
+Only a match on all three operation selectors identifies ADD.
+
+```mermaid
+flowchart TD
+    WORD["32-bit word"] --> FIELDS["Extract and preserve raw fields"]
+    FIELDS --> DEFAULT["Set kind to INSTRUCTION_UNKNOWN"]
+    DEFAULT --> OPCODE{"opcode = 0x33?"}
+    OPCODE -->|"No"| RETURN["Return kind and preserved fields"]
+    OPCODE -->|"Yes"| F3{"funct3 = 0?"}
+    F3 -->|"No"| RETURN
+    F3 -->|"Yes"| F7{"funct7 = 0?"}
+    F7 -->|"No"| RETURN
+    F7 -->|"Yes"| ADD["Set kind to INSTRUCTION_ADD"]
+    ADD --> RETURN
+```
+
+The three checks form one AND condition. Register numbers do not change the
+operation kind. Unknown includes valid operations that are not implemented yet;
+it is not an architectural illegal-instruction verdict. CPU and RAM are unchanged.

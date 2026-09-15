@@ -136,6 +136,8 @@ help:
 		'New src/**/*.c and tests/**/test_*.c files are discovered automatically.' \
 		'Header dependencies and changes to compiler flags trigger rebuilding.' \
 		'Artifacts are separated under build/debug, build/release, and build/sanitize.' \
-		'Assertions remain enabled in test files, including release builds.'
+		'Assertions remain enabled in test files, including release builds.' \
+		'' \
+		'Learning guide: docs/HELP.md (formats, examples, and current capabilities).'
 
 -include $(ALL_OBJECTS:.o=.d)
