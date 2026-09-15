@@ -20,21 +20,28 @@ Completed:
 - ADD recognition with all operation selectors checked; unknown words retain
   their original encoding and fields.
 
-Next:
-
-- Execute ADD with register access, program-counter updates, and step results.
-- Extend decoding to other operations and format-specific immediate fields.
-- Add CPU trap handling during the execution stage.
-
 The implemented behavior is illustrated in [Core Flowcharts](FLOWCHARTS.md).
 
 ## 2. RV32I execution
 
-- Decode and execute the base integer instruction set.
-- Define reset, stop, trap, and instruction-counting behavior.
+Completed:
+
+- Single-instruction ADD execution through `cpu_step`, using the existing fetch,
+  decoder, and checked register access functions.
+- Low-32-bit addition, x0 behavior, and overlapping source/destination support.
+- Four-byte PC advancement and a 64-bit wrapping instruction counter.
+- Distinct step results with state preservation on rejected or halted steps.
+- Tests for arithmetic boundaries, register overlap, x0, halt, null arguments,
+  PC alignment and bounds, unsupported words, and execution at the end of RAM.
+
+Remaining:
+
+- Extend decoding and execution to the other base integer instructions,
+  including format-specific immediate fields.
+- Add architectural trap handling and execution-stop control.
 - Report each step's instruction address and changes to machine state.
-- Test arithmetic boundaries, branches, jumps, loads, stores, and invalid
-  instructions against the selected architecture behavior.
+- Test branches, jumps, loads, stores, and invalid instructions against the
+  selected architecture behavior.
 - Add a minimal command-line runner and reproducible example programs.
 - Provide command-line help with syntax, options, examples, and diagnostic guidance.
 

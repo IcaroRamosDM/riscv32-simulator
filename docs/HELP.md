@@ -42,8 +42,8 @@ add x1, x2, x3
 ```
 
 Read it as: add the value in x2 to the value in x3, then store the result in x1.
-The destination comes first in this syntax. In this example, executing ADD would
-replace the value 99 in x1 with 12. The source values remain 5 and 7.
+The destination comes first in this syntax. In this example, executing ADD
+replaces the value 99 in x1 with 12. The source values remain 5 and 7.
 
 The numbers 1, 2, and 3 select registers. The values 5 and 7 are read from CPU
 state when the instruction executes. Changing those stored values does not
@@ -85,8 +85,8 @@ field values. For example, `rd = 1`, `rs1 = 2`, and `rs2 = 3`.
 To extract rd, shifting the word right by 7 places moves bits 11-7 to bits 4-0.
 The mask `0x1F` keeps only those five bits. Their binary value `00001` is 1.
 
-The implemented extraction function does not read the values 5 and 7, perform
-the addition, or write 12 into x1. Execution is the next development stage.
+The extraction function does not read the values 5 and 7, perform the addition,
+or write 12 into x1. Those actions belong to the implemented `cpu_step` function.
 
 ### What operation identification does
 
@@ -98,6 +98,55 @@ which the current decoder reports as `INSTRUCTION_UNKNOWN`.
 Unknown means unrecognized by the current implementation. It does not by itself
 prove that the word is invalid RV32I. Decoding preserves the raw word and fields
 for unknown operations too, and does not access CPU or RAM state.
+
+### What one execution step does
+
+With the ADD word at address 0x1000, PC set to 0x1000, and the register values
+from the example, a successful `cpu_step` has these effects:
+
+| State | Before | After |
+| --- | --- | --- |
+| x1 | 99 | 12 |
+| x2 | 5 | 5 |
+| x3 | 7 | 7 |
+| PC | 0x1000 | 0x1004 |
+| Instruction count | 41 | 42 |
+
+The step reads both operands before writing the destination. For example,
+`add x2, x2, x3` uses the old value in x2 and then replaces it with the sum.
+
+ADD retains the low 32 bits: 0xFFFFFFFF plus 1 becomes zero. Writes to x0 are
+discarded, but a successful instruction still advances PC and the counter.
+The simulator's instruction counter wraps from UINT64_MAX to zero. It counts
+successful instructions, not clock cycles.
+
+RAM is unchanged by the current ADD implementation. Fetch and decode are also
+available separately for inspection. The full [execution flowchart](FLOWCHARTS.md#9-single-instruction-execution)
+shows the checks performed by `cpu_step`.
+
+### Step results
+
+| Result | Meaning |
+| --- | --- |
+| `CPU_STEP_OK` | One ADD executed successfully. |
+| `CPU_STEP_HALTED` | The CPU was already halted; no instruction was attempted. |
+| `CPU_STEP_INVALID_ARGUMENT` | A required pointer was null or a register access was rejected. |
+| `CPU_STEP_MISALIGNED_PC` | PC was not a multiple of four bytes. |
+| `CPU_STEP_FETCH_FAILED` | The instruction word could not be read from RAM. |
+| `CPU_STEP_UNKNOWN_INSTRUCTION` | The current decoder did not recognize the word. |
+
+Checks occur in this order: required pointers, halted flag, PC alignment,
+instruction fetch, operation identification, and register accesses. The current
+decoder produces register numbers in 0..31, so its register accesses pass the
+range checks.
+
+Every non-OK result preserves CPU and RAM state. A rejected step does not set
+`halted`; the caller receives the reason and decides what to do next. These
+results describe the simulator API. Architectural trap handling is planned.
+
+With the current RAM map, a successful ADD at 0xFFFC advances PC to 0x10000.
+That instruction counts as executed. The next step returns
+`CPU_STEP_FETCH_FAILED`, preserving the state left by the successful ADD.
 
 ## Instruction formats
 

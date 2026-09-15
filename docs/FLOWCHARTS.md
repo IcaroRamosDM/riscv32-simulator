@@ -23,11 +23,16 @@ flowchart TD
     FETCH --> WORD["32-bit word available to the caller"]
     WORD --> FIELDS["Extract raw instruction fields"]
     FIELDS --> DEC["Identify ADD or report an unknown operation"]
-    DEC -.-> EXEC["Planned: execute and update machine state"]
+    DEC --> EXEC["For ADD: read operands, add, and write the destination"]
+    EXEC --> ADVANCE["Advance PC by 4; increment instruction count"]
+    CALL --> STEP["cpu_step: validate and attempt one instruction"]
+    STEP --> FETCH
 ```
 
 CPU and RAM are separate objects. Preparing one does not automatically prepare
-the other. The arrows do not imply an automatic processor loop.
+the other. The arrows do not imply an automatic processor loop. The caller can
+inspect fields with the separate functions or call `cpu_step` to fetch, decode,
+and execute one instruction. A rejected step preserves state; see section 9.
 
 ## 2. Reset
 
@@ -166,9 +171,9 @@ flowchart TD
     WORD["32-bit word: 0x003100B3"] --> EXTRACT["instruction_extract_fields"]
     EXTRACT --> FIELDS["raw preserved; rd=1, rs1=2, rs2=3; opcode and function fields"]
     FIELDS --> IDENTIFY["Identify ADD from opcode, funct3, and funct7"]
-    IDENTIFY -.-> READ["Planned: read x2 and x3; example values 5 and 7"]
-    READ -.-> ADD["Planned: add the values"]
-    ADD -.-> WRITE["Planned: write 12 into x1"]
+    IDENTIFY --> READ["cpu_step: read x2 and x3; example values 5 and 7"]
+    READ --> ADD["Add the values and retain the low 32 bits"]
+    ADD --> WRITE["Write 12 into x1"]
 ```
 
 In this example, the extracted rs1 value of 2 selects x2; it is not the value
@@ -197,3 +202,52 @@ flowchart TD
 The three checks form one AND condition. Register numbers do not change the
 operation kind. Unknown includes valid operations that are not implemented yet;
 it is not an architectural illegal-instruction verdict. CPU and RAM are unchanged.
+
+## 9. Single-instruction execution
+
+`cpu_step` attempts one instruction per call. Its checks and state updates are:
+
+```mermaid
+flowchart TD
+    START["cpu_step"] --> PTR{"CPU and RAM pointers non-null?"}
+    PTR -->|"No"| ARG["CPU_STEP_INVALID_ARGUMENT"]
+    PTR -->|"Yes"| HALT{"CPU halted?"}
+    HALT -->|"Yes"| STOP["CPU_STEP_HALTED"]
+    HALT -->|"No"| ALIGN{"PC is a multiple of 4?"}
+    ALIGN -->|"No"| MISALIGN["CPU_STEP_MISALIGNED_PC"]
+    ALIGN -->|"Yes"| FETCH["cpu_fetch_instruction"]
+    FETCH --> FETCH_OK{"Fetch succeeded?"}
+    FETCH_OK -->|"No"| FETCH_FAIL["CPU_STEP_FETCH_FAILED"]
+    FETCH_OK -->|"Yes"| DECODE["instruction_decode"]
+    DECODE --> SUPPORTED{"Instruction is ADD?"}
+    SUPPORTED -->|"No"| UNKNOWN["CPU_STEP_UNKNOWN_INSTRUCTION"]
+    SUPPORTED -->|"Yes"| READ["Read rs1 and rs2 with cpu_read_register"]
+    READ --> READ_OK{"Both reads succeeded?"}
+    READ_OK -->|"No"| ARG
+    READ_OK -->|"Yes"| SUM["Add values using a 64-bit intermediate; retain 32 bits"]
+    SUM --> WRITE["cpu_write_register: write rd or discard for x0"]
+    WRITE --> WRITE_OK{"Write succeeded?"}
+    WRITE_OK -->|"No"| ARG
+    WRITE_OK -->|"Yes"| PC["Advance PC by 4 modulo 2^32"]
+    PC --> COUNT["Increment instruction count modulo 2^64"]
+    COUNT --> OK["CPU_STEP_OK"]
+    ARG --> PRESERVE["Return with all CPU and RAM state preserved"]
+    STOP --> PRESERVE
+    MISALIGN --> PRESERVE
+    FETCH_FAIL --> PRESERVE
+    UNKNOWN --> PRESERVE
+```
+
+The register helpers reject invalid accesses before any write. The current
+decoder always produces indices in 0..31. Once the destination write succeeds,
+only PC advancement and counter increment remain; both have defined wrapping
+behavior. There is no later failure path in the ADD step.
+
+Both operands are read before the destination changes, allowing rd to equal
+rs1 or rs2. A discarded x0 write still counts as a successful instruction.
+RAM and the halted flag are unchanged for every result.
+
+At the end of RAM, an ADD beginning at 0xFFFC executes and advances PC to
+0x10000. The following step reports a fetch failure without changing state.
+These results are simulator diagnostics; architectural trap handling and an
+application execution loop remain planned work.
