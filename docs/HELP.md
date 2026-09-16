@@ -12,6 +12,8 @@ make app
 
 At `rv32>`, type `help`, `help formats`, or `help addi`. Commands are
 case-sensitive; mnemonic help accepts either case. Use `quit` to leave.
+For C compilation, ELF/binary input, source inspection, and the memory/runtime
+layout, follow the [stage-3 guide](STAGE3.md). Use `make run-c` to start its C demo.
 The [demo walkthroughs](../demos/README.md) supply expected results.
 The [flowcharts](FLOWCHARTS.md) show the current CPU and monitor paths.
 
@@ -32,9 +34,10 @@ The [flowcharts](FLOWCHARTS.md) show the current CPU and monitor paths.
 | Trap | A reported condition that prevents normal completion, including faults and ECALL. |
 | Hart | One independently executing RISC-V hardware thread; this simulator has one. |
 
-The simulator is written in C, but it currently consumes encoded RV32I words.
-Compiling the user's C source and mapping source lines to instructions come in
-stage 3. One monitor step already means one machine instruction.
+The simulator executes encoded RV32I instructions loaded from words, ELF, or
+raw binary. The C toolchain produces those instructions and source metadata.
+One monitor step means one machine instruction, even when several instructions
+map to the same C line.
 
 ## Worked example: ADD
 
@@ -176,10 +179,13 @@ does not suppress memory access or its potential faults.
 
 ## RAM, loads, and stores
 
-RAM is currently fixed at 64 KiB: addresses 0x00000000 through 0x0000FFFF.
-This capacity is a teaching-machine choice. A 32-bit byte address can name
-4 GiB; it does not require that much installed RAM. Configurable capacity is
-scheduled for stage 3.
+RAM defaults to 64 KiB: addresses 0x00000000 through 0x0000FFFF. Select another
+capacity with `--ram SIZE`, using B, KiB, or MiB. The monitor accepts 4 bytes
+through 256 MiB in multiples of four. A 32-bit byte address can name 4 GiB;
+it does not require that much installed RAM. The current cap is a resource policy.
+
+The following last-address examples use the default 64 KiB. At other capacities,
+the last valid start is capacity minus the access width.
 
 `lw x9, 0(x8)` computes address = x8 + signed offset, modulo 2^32, then reads
 four bytes. `sw x7, 0(x8)` computes the same kind of address and writes x7.
@@ -302,7 +308,11 @@ history storage and reverse execution are stage 5.
 | regs | Show register aliases, hexadecimal/signed/unsigned values, PC, and count. |
 | mem ADDRESS [BYTES] | Inspect 1..4096 bytes, default 32. |
 | disasm ADDRESS [COUNT] | Inspect 1..256 aligned words, default 8. |
-| help [formats\|MNEMONIC] | Show commands or contextual information. |
+| where [ADDRESS] | Show source location and text; default current PC. |
+| sources | List recorded source file indices and paths. |
+| source [LINE] [FILE_INDEX] | Inspect source context; mark rows with no mapped instruction. |
+| symbols [NAME] | List ELF symbols or find an exact name. |
+| help [formats\|runtime\|source\|MNEMONIC] | Show commands or contextual information. |
 | quit | Leave the monitor. |
 
 The default run limit is 100,000 attempts. `--max-steps N` changes the default;
@@ -312,8 +322,9 @@ discarding state. Resuming continues from the current PC. Inspection is read-onl
 
 Command numbers use decimal or a 0x hexadecimal prefix. Leading zeroes in a
 decimal number do not select octal. Negative, overflowing, and malformed numbers
-are rejected. `--entry` defaults to `--load-address`; both must be aligned,
-and entry must initially point inside the loaded program.
+are rejected. For text words, `--entry` defaults to `--load-address`. Raw binary
+requires both explicitly. ELF provides its own addresses. The initial entry
+must point to a complete aligned instruction in the loaded program.
 
 A `.words` file is a teaching input format:
 
@@ -331,8 +342,9 @@ The full image is validated before replacing the loaded state. RAM outside the
 image starts at zero.
 
 This format is distinct from an assembler source, Intel HEX, ELF, or a raw
-binary. Those toolchain/import workflows come in later stages. Disassembly is
-for inspection; the displayed FENCE ordering fields are descriptive output.
+binary. ELF and raw binary are loaded with `--elf` and `--bin` respectively;
+see [Stage 3](STAGE3.md). The full import/export interface is stage 7. Disassembly
+is for inspection; the displayed FENCE ordering fields are descriptive output.
 
 In batch mode, shell status is a0 & 255 for program exit, 1 for a trap, 2 for an
 input/setup error, 124 for reaching the limit, and 130 for Ctrl-C. The displayed

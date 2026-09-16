@@ -1,5 +1,7 @@
 #include "monitor.h"
 #include "machine.h"
+#include "source_view.h"
+#include <limits.h>
 #include <ctype.h>
 #include <errno.h>
 #include <inttypes.h>
@@ -14,6 +16,9 @@ static volatile sig_atomic_t interrupted;
 typedef struct Monitor
 {
   Machine *machine;
+  DebugInfo *debug;
+  const DebugLine *last_source;
+  bool source_seen;
   uint64_t limit;
   bool trace;
   bool color;
@@ -48,11 +53,51 @@ static bool number(const char *text, uint64_t maximum, uint64_t *value)
   return true;
 }
 
+static bool parse_ram_size(const char *text, size_t *value)
+{
+  size_t length = strlen(text);
+  size_t unit = 0;
+  size_t suffix = 0;
+  if (length > 3 && strcmp(text + length - 3, "KiB") == 0)
+  {
+    unit = MEMORY_KIB;
+    suffix = 3;
+  }
+  else if (length > 3 && strcmp(text + length - 3, "MiB") == 0)
+  {
+    unit = MEMORY_MIB;
+    suffix = 3;
+  }
+  else if (length > 1 && text[length - 1] == 'B')
+  {
+    unit = MEMORY_BYTE_SIZE;
+    suffix = 1;
+  }
+  else return false;
+
+  char digits[32];
+  size_t count = length - suffix;
+  if (count >= sizeof digits) return false;
+  memcpy(digits, text, count);
+  digits[count] = '\0';
+
+  uint64_t amount;
+  if (!number(digits, MEMORY_MAX_SIZE / unit, &amount)) return false;
+  size_t size = (size_t)amount * unit;
+  if (!memory_size_valid(size)) return false;
+  *value = size;
+  return true;
+}
+
 static void usage(FILE *out)
 {
   fputs("RISC-V Studio - RV32I teaching monitor\n"
-    "Usage: riscv32-studio --program FILE [options]\n"
+    "Usage: riscv32-studio (--program FILE | --elf FILE | --bin FILE) [options]\n"
     "  --program FILE     Text words: one 32-bit hex word per line, # comments\n"
+    "  --elf FILE         ELF32 RV32I/ILP32 executable, symbols, and DWARF source mapping\n"
+    "  --bin FILE         Raw bytes; requires --load-address AND --entry\n"
+    "  --ram SIZE         RAM size with B, KiB, or MiB suffix (default: 64KiB)\n"
+    "                     Range: 4B through 256MiB, multiples of 4 bytes\n"
     "  --run              Run in batch mode; otherwise open the monitor\n"
     "  --trace            Show each instruction and its effects\n"
     "  --max-steps N      Maximum attempts per run (default: 100000)\n"
@@ -62,14 +107,16 @@ static void usage(FILE *out)
     "  --no-color         Disable colors (automatic on terminals by default)\n"
     "  --help             Show this help\n"
     "Numbers are decimal or 0x-prefixed hexadecimal; negative values are invalid.\n"
+    "RAM requires an explicit case-sensitive unit, e.g. 65536B, 64KiB, or 1MiB.\n"
     "Commands: step [N], run [N], stop, reset, regs, mem ADDRESS [BYTES],\n"
-    "          disasm ADDRESS [COUNT], help [formats|MNEMONIC], quit\n"
+    "          disasm ADDRESS [COUNT], where [ADDRESS], sources, source [LINE] [FILE_INDEX],\n"
+    "          symbols [NAME], help [formats|runtime|source|MNEMONIC], quit\n"
     "Ctrl-C interrupts execution at an instruction boundary.\n"
     "Environment: a7=93 + ECALL exits with a0. EBREAK pauses at its instruction.\n"
     "Batch status: exit a0 & 255; trap=1; input error=2; limit=124; Ctrl-C=130.\n"
     "Examples:\n"
     "  ./build/debug/riscv32-studio --program demos/sum.words --run --trace\n"
-    "  ./build/debug/riscv32-studio --program demos/call.words\n"
+    "  ./build/debug/riscv32-studio --program demos/call.words --ram 1MiB\n"
     "Guide and flowcharts: docs/HELP.md, docs/FLOWCHARTS.md\n", out);
 }
 
@@ -84,10 +131,42 @@ static void command_help(const char *topic)
       "regs                    Show x0..x31 and PC; mark the last changed register.\n"
       "mem ADDRESS [BYTES]     Inspect up to 4096 bytes (default 32).\n"
       "disasm ADDRESS [COUNT]  Decode up to 256 words (default 8).\n"
+      "where [ADDRESS]         Show source location (default: current PC).\n"
+      "sources                 List source file indices from DWARF.\n"
+      "source [LINE] [INDEX]   Show source context; mark lines without mapped instructions.\n"
+      "symbols [NAME]          List ELF symbols or find an exact name.\n"
+      "help runtime            Explain RAM, stack, C libraries, and ELF/binary input.\n"
+      "help source             Explain instruction-to-source mapping and limitations.\n"
       "help formats            Explain instruction layouts and immediates.\n"
       "help MNEMONIC           Show syntax and behavior, e.g. help addi.\n"
       "quit                    Exit the monitor. Ctrl-C stops a running program.\n"
       "EBREAK stays at the breakpoint; use reset to restart the program.");
+    return;
+  }
+  if (strcmp(topic, "runtime") == 0)
+  {
+    puts("C target: RV32I / ILP32, freestanding C17, int main(void).\n"
+      "Default layout: code at 0x1000, globals after code, 4KiB stack at the RAM top.\n"
+      "Startup sets sp/gp, clears BSS, calls main, then exits with a7=93 + ECALL.\n"
+      "libgcc provides software arithmetic; memcpy/memmove/memset/memcmp are included.\n"
+      "There is no hosted libc, printf, malloc, file I/O, or OS. Unsupported ECALLs trap.\n"
+      "RAM is flat: no MMU, memory permissions, or protected stack guard.\n"
+      "ELF retains load addresses, entry, symbols and available debug data.\n"
+      "Raw binary retains bytes only; supply load address, entry and enough RAM.\n"
+      "Build: make guest SOURCE=demos/c/learning.c RAM=64KiB");
+    return;
+  }
+  if (strcmp(topic, "source") == 0)
+  {
+    puts("The PC and assembly instruction are the execution authority.\n"
+      "One C line can map to many instructions; the Source label stays until it changes.\n"
+      "DWARF rows map address ranges, not a one-to-one translation of C statements.\n"
+      "Declarations, comments, optimized code and other lines may have no mapped instruction.\n"
+      "Unmapped instructions and missing source files are reported explicitly.\n"
+      "Source text is read from its recorded path; rebuild after editing a source file.\n"
+      "The startup and library routines may map to assembly or runtime C, not your main file.\n"
+      "Use sources, then source LINE FILE_INDEX to inspect any recorded source.\n"
+      "Local-variable evaluation and source-level stepping belong to the later debugger.");
     return;
   }
   if (strcmp(topic, "formats") == 0)
@@ -133,6 +212,14 @@ static void trace_step(const CpuStepRecord *record, void *context)
   monitor->last = *record;
   monitor->has_record = true;
   if (!monitor->trace) return;
+  const DebugLine *location = debug_info_lookup(monitor->debug, record->pc_before);
+  bool same_source = location == NULL ? monitor->last_source == NULL :
+    monitor->last_source != NULL && location->file == monitor->last_source->file
+      && location->line == monitor->last_source->line;
+  if (!monitor->source_seen || !same_source)
+    source_view_location(monitor->debug, record->pc_before, true);
+  monitor->last_source = location;
+  monitor->source_seen = true;
   char assembly[128] = "<instruction unavailable>";
   if (record->fetched)
   {
@@ -182,6 +269,7 @@ static void show_registers(const Monitor *monitor)
   printf("PC=0x%08" PRIX32 "  retired=%" PRIu64 "  halted=%s\n",
     monitor->machine->cpu.program_counter, monitor->machine->cpu.instruction_count,
     monitor->machine->cpu.halted ? "yes" : "no");
+  printf("RAM=%zu bytes\n", monitor->machine->memory.size);
 }
 
 static void report_stop(const MachineRun *run, const Machine *machine)
@@ -209,12 +297,13 @@ static int batch_status(MachineStop reason, uint32_t exit_code)
 
 static void inspect(Monitor *monitor, const char *command, char **args, size_t count)
 {
+  const size_t ram_size = monitor->machine->memory.size;
   uint64_t address, length = strcmp(command, "mem") == 0 ? 32 : 8;
   bool memory = strcmp(command, "mem") == 0;
   uint64_t maximum = memory ? MAX_INSPECTION_BYTES : MAX_DISASSEMBLY_WORDS;
-  if (count < 2 || count > 3 || !number(args[1], MEMORY_SIZE - 1, &address) ||
+  if (count < 2 || count > 3 || !number(args[1], ram_size - 1, &address) ||
       (count == 3 && !number(args[2], maximum, &length)) || length == 0 ||
-      (memory ? length > MEMORY_SIZE - address : address % 4 != 0 || length > (MEMORY_SIZE - address) / 4))
+      (memory ? length > ram_size - address : address % 4 != 0 || length > (ram_size - address) / 4))
   {
     puts("Invalid inspection range. Use mem ADDRESS [BYTES] or disasm ADDRESS [COUNT].");
     return;
@@ -233,7 +322,11 @@ static void inspect(Monitor *monitor, const char *command, char **args, size_t c
       bool ok = memory_read_u32(&monitor->machine->memory, (uint32_t)(address + index * 4), &word);
       char text[128];
       if (!ok || !instruction_disassemble(word, text, sizeof text)) { puts("Inspection failed."); return; }
-      printf("0x%08" PRIX64 "  %08" PRIX32 "  %s\n", address + index * 4, word, text);
+      printf("0x%08" PRIX64 "  %08" PRIX32 "  %s", address + index * 4, word, text);
+      const DebugLine *location = debug_info_lookup(monitor->debug, (uint32_t)(address + index * 4));
+      if (location != NULL) printf("  ; %s:%u", monitor->debug->files[location->file], location->line);
+      else fputs("  ; <no source mapping>", stdout);
+      putchar('\n');
     }
   }
 }
@@ -273,6 +366,27 @@ static int interactive(Monitor *monitor)
     if (strcmp(command, "quit") == 0 && count == 1) return 0;
     if (strcmp(command, "help") == 0 && count <= 2) command_help(count == 2 ? args[1] : NULL);
     else if (strcmp(command, "regs") == 0 && count == 1) show_registers(monitor);
+    else if (strcmp(command, "sources") == 0 && count == 1) source_view_files(monitor->debug);
+    else if (strcmp(command, "symbols") == 0 && count <= 2)
+      source_view_symbols(monitor->debug, count == 2 ? args[1] : NULL);
+    else if (strcmp(command, "where") == 0 && count <= 2)
+    {
+      uint64_t address = monitor->machine->cpu.program_counter;
+      if (count == 2 && !number(args[1], UINT32_MAX, &address))
+        puts("Invalid address.");
+      else source_view_location(monitor->debug, (uint32_t)address, true);
+      monitor->source_seen = false;
+    }
+    else if (strcmp(command, "source") == 0 && count <= 3)
+    {
+      uint64_t line_number = 0, file = SIZE_MAX;
+      if ((count >= 2 && (!number(args[1], UINT_MAX, &line_number) || line_number == 0)) ||
+          (count == 3 && (!number(args[2], SIZE_MAX, &file) || file == SIZE_MAX)))
+        puts("Use source [positive LINE] [FILE_INDEX].");
+      else source_view_lines(monitor->debug, monitor->machine->cpu.program_counter,
+        (unsigned)line_number, (size_t)file);
+      monitor->source_seen = false;
+    }
     else if (strcmp(command, "stop") == 0 && count == 1)
     {
       machine_stop(monitor->machine);
@@ -282,6 +396,8 @@ static int interactive(Monitor *monitor)
     {
       bool ok = machine_reset(monitor->machine);
       monitor->has_record = false;
+      monitor->source_seen = false;
+      monitor->last_source = NULL;
       puts(ok ? "Loaded image and CPU restored." : "Reset failed.");
     }
     else if (strcmp(command, "mem") == 0 || strcmp(command, "disasm") == 0)
@@ -305,8 +421,10 @@ static int interactive(Monitor *monitor)
 int monitor_main(int argc, char **argv)
 {
   const char *path = NULL;
+  ProgramFormat format = PROGRAM_WORDS;
   uint64_t load_address = 0, entry = 0, limit = DEFAULT_LIMIT;
-  bool entry_set = false, run_batch = false, trace = false;
+  size_t ram_size = MEMORY_DEFAULT_SIZE;
+  bool entry_set = false, address_set = false, run_batch = false, trace = false;
   bool color = isatty(STDOUT_FILENO) != 0;
   for (int i = 1; i < argc; ++i)
   {
@@ -316,11 +434,27 @@ int monitor_main(int argc, char **argv)
     else if (strcmp(option, "--trace") == 0) trace = true;
     else if (strcmp(option, "--color") == 0) color = true;
     else if (strcmp(option, "--no-color") == 0) color = false;
-    else if (strcmp(option, "--program") == 0 || strcmp(option, "--max-steps") == 0 ||
-        strcmp(option, "--load-address") == 0 || strcmp(option, "--entry") == 0)
+    else if (strcmp(option, "--program") == 0 || strcmp(option, "--elf") == 0 ||
+        strcmp(option, "--bin") == 0 || strcmp(option, "--max-steps") == 0 ||
+        strcmp(option, "--load-address") == 0 || strcmp(option, "--entry") == 0 ||
+        strcmp(option, "--ram") == 0)
     {
       if (++i >= argc) { fprintf(stderr, "Missing value for %s.\n", option); return 2; }
-      if (strcmp(option, "--program") == 0) path = argv[i];
+      if (strcmp(option, "--program") == 0 || strcmp(option, "--elf") == 0 || strcmp(option, "--bin") == 0)
+      {
+        if (path != NULL) { fputs("Choose exactly one input: --program, --elf, or --bin.\n", stderr); return 2; }
+        path = argv[i];
+        format = strcmp(option, "--elf") == 0 ? PROGRAM_ELF :
+          strcmp(option, "--bin") == 0 ? PROGRAM_BINARY : PROGRAM_WORDS;
+      }
+      else if (strcmp(option, "--ram") == 0)
+      {
+        if (!parse_ram_size(argv[i], &ram_size))
+        {
+          fputs("Invalid RAM size. Use B, KiB, or MiB; 4B through 256MiB in multiples of 4.\n", stderr);
+          return 2;
+        }
+      }
       else
       {
         uint64_t value;
@@ -331,55 +465,74 @@ int monitor_main(int argc, char **argv)
           if (value == 0) { fputs("Instruction limit must be positive.\n", stderr); return 2; }
           limit = value;
         }
-        else if (strcmp(option, "--load-address") == 0) load_address = value;
+        else if (strcmp(option, "--load-address") == 0) { load_address = value; address_set = true; }
         else { entry = value; entry_set = true; }
       }
     }
     else { fprintf(stderr, "Unknown option: %s\n", option); return 2; }
   }
   if (path == NULL) { usage(stderr); return 2; }
+  if (format == PROGRAM_BINARY && (!address_set || !entry_set))
+  { fputs("Raw binary requires both --load-address and --entry.\n", stderr); return 2; }
+  if (format == PROGRAM_ELF && (address_set || entry_set))
+  { fputs("ELF supplies its load addresses and entry; address overrides are unsupported.\n", stderr); return 2; }
   if (!entry_set) entry = load_address;
   FILE *input = fopen(path, "rb");
   if (input == NULL) { fprintf(stderr, "Cannot open %s: %s\n", path, strerror(errno)); return 2; }
-  Program *program = malloc(sizeof *program);
-  Machine *machine = malloc(sizeof *machine);
-  if (program == NULL || machine == NULL)
-  {
-    fputs("Cannot allocate machine state.\n", stderr);
-    free(program);
-    free(machine);
-    fclose(input);
-    return 2;
-  }
+  Program program = {0};
   ProgramError error;
-  bool loaded = program_read_words(input, (uint32_t)load_address, (uint32_t)entry, program, &error);
+  bool loaded;
+  if (format == PROGRAM_ELF) loaded = program_read_elf(input, ram_size, &program, &error);
+  else if (format == PROGRAM_BINARY)
+    loaded = program_read_binary(input, ram_size, (uint32_t)load_address, (uint32_t)entry, &program, &error);
+  else loaded = program_read_words(input, ram_size, (uint32_t)load_address, (uint32_t)entry, &program, &error);
   int closed = fclose(input);
   if (!loaded || closed != 0)
   {
     fprintf(stderr, "%s:%zu: %s\n", path, loaded ? 0 : error.line,
       loaded ? "input close error" : error.message);
-    free(program);
-    free(machine);
+    program_destroy(&program);
     return 2;
   }
-  machine_init(machine);
-  loaded = machine_load(machine, program);
-  free(program);
-  if (!loaded) { free(machine); fputs("Invalid program image.\n", stderr); return 2; }
-  Monitor monitor = {.machine = machine, .limit = limit, .trace = trace, .color = color};
+  DebugInfo debug = {0};
+  const char *debug_error;
+  if (!debug_info_read(&program, &debug, &debug_error))
+  {
+    fprintf(stderr, "%s: %s\n", path, debug_error);
+    program_destroy(&program);
+    return 2;
+  }
+  Machine machine;
+  machine_init(&machine);
+  loaded = machine_load(&machine, &program);
+  program_destroy(&program);
+  if (!loaded)
+  {
+    machine_destroy(&machine);
+    debug_info_destroy(&debug);
+    fputs("Cannot create machine state from the program image.\n", stderr);
+    return 2;
+  }
+  Monitor monitor = {.machine = &machine, .debug = &debug, .limit = limit, .trace = trace, .color = color};
   void (*previous_handler)(int) = signal(SIGINT, interrupt_handler);
   if (previous_handler == SIG_ERR)
-  { free(machine); fputs("Cannot install interrupt handler.\n", stderr); return 2; }
+  {
+    machine_destroy(&machine);
+    debug_info_destroy(&debug);
+    fputs("Cannot install interrupt handler.\n", stderr);
+    return 2;
+  }
   interrupted = 0;
   int status;
   if (run_batch)
   {
-    MachineRun run = machine_run(machine, limit, should_stop, trace_step, &monitor);
-    report_stop(&run, machine);
-    status = batch_status(run.reason, machine->exit_code);
+    MachineRun run = machine_run(&machine, limit, should_stop, trace_step, &monitor);
+    report_stop(&run, &machine);
+    status = batch_status(run.reason, machine.exit_code);
   }
   else status = interactive(&monitor);
   signal(SIGINT, previous_handler);
-  free(machine);
+  machine_destroy(&machine);
+  debug_info_destroy(&debug);
   return status;
 }

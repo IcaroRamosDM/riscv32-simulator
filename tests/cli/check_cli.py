@@ -129,6 +129,70 @@ class MonitorTests(unittest.TestCase):
         self.assertIn("Command too long", result.stdout)
         self.assertNotIn("Stopped:", result.stdout)
 
+    def test_ram_units_and_sizes(self):
+        path = self.program("00000013")
+        for spelling, size in [("4B", 4), ("12B", 12), ("1024B", 1024),
+                               ("64KiB", 65536), ("96KiB", 98304),
+                               ("0x40KiB", 65536), ("1MiB", 1048576)]:
+            with self.subTest(spelling=spelling):
+                result = self.invoke("--program", path, "--ram", spelling,
+                                     commands="regs\nstep\nquit\n")
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertIn(f"RAM={size} bytes", result.stdout)
+                self.assertIn("attempts=1; retired=1", result.stdout)
+
+    def test_invalid_ram_sizes(self):
+        path = self.program("00000013")
+        for size in ["", "64", "64KB", "64kib", "-1KiB", "+4B", "0B", "1B", "6B",
+                     "257MiB", "268435460B", "18446744073709551616MiB", "1.5MiB",
+                     " 64KiB", "64KiB ", "0xKiB", "0x100000000B"]:
+            with self.subTest(size=size):
+                result = self.invoke("--program", path, "--ram", size, "--run")
+                self.assertEqual(result.returncode, 2)
+                self.assertIn("Invalid RAM size", result.stderr)
+        result = self.invoke("--program", path, "--ram")
+        self.assertEqual(result.returncode, 2)
+
+    def test_program_fit_and_data_bounds(self):
+        result = self.invoke("--program", "demos/sum.words", "--ram", "32B", "--run")
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("program does not fit in RAM", result.stderr)
+        result = self.invoke("--program", "demos/sum.words", "--ram", "256B", "--run")
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("store access fault", result.stdout)
+        result = self.invoke("--program", "demos/sum.words", "--ram", "1KiB", "--run")
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_program_above_old_ram_limit(self):
+        args = ["--program", "demos/arithmetic.words", "--load-address", "0x10000"]
+        result = self.invoke(*args, "--ram", "128KiB",
+                             commands="disasm 0x10000 1\nmem 0x10000 4\nrun\nquit\n")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("00C00293  addi x5, x0, 12", result.stdout)
+        self.assertIn("0x00010000: 93 02 C0 00", result.stdout)
+        self.assertIn("PC=0x00010018; exit=0", result.stdout)
+        result = self.invoke(*args, "--ram", "64KiB", "--run")
+        self.assertEqual(result.returncode, 2)
+
+    def test_custom_ram_inspection_limits(self):
+        path = self.program("00000013")
+        result = self.invoke("--program", path, "--ram", "1KiB",
+                             commands="mem 1020 4\nmem 1023 2\ndisasm 1020 1\n"
+                                      "disasm 1022 1\ndisasm 1024 1\nquit\n")
+        self.assertEqual(result.returncode, 0)
+        self.assertIn("0x000003FC: 00 00 00 00", result.stdout)
+        self.assertIn("0x000003FC  00000000  .word 0x00000000", result.stdout)
+        self.assertEqual(result.stdout.count("Invalid inspection range"), 3)
+
+    def test_reset_keeps_selected_capacity(self):
+        result = self.invoke("--program", "demos/sum.words", "--ram", "1MiB",
+                             commands="run\nmem 0x100 4\nreset\nmem 0x100 4\nregs\nquit\n")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("0x00000100: 0F 00 00 00", result.stdout)
+        self.assertIn("0x00000100: 00 00 00 00", result.stdout)
+        self.assertIn("RAM=1048576 bytes", result.stdout)
+        self.assertIn("PC=0x00000000  retired=0", result.stdout)
+
     @unittest.skipUnless(os.name == "posix", "POSIX signal check")
     def test_ctrl_c(self):
         path = self.program("0000006F\n")
@@ -138,6 +202,8 @@ class MonitorTests(unittest.TestCase):
         try:
             # Output proves execution and handler installation before delivering SIGINT.
             line = process.stdout.readline()
+            if line.startswith("Source:"):
+                line = process.stdout.readline()
             self.assertIn("jal x0, 0", line)
             process.send_signal(signal.SIGINT)
             output, errors = process.communicate(timeout=10)

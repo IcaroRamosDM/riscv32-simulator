@@ -3,6 +3,9 @@
 Run these commands from the repository root after `make app`.
 Each .words file contains exact hexadecimal encodings with assembly comments.
 The comments are for reading; the loader consumes only the words.
+The C examples use the separate cross-compilation workflow described below.
+The call.words demo explicitly chooses a 0x10000 stack top; increasing installed
+RAM does not relocate that hand-written program's stack.
 
 ## 1. Arithmetic without external register setup
 
@@ -108,3 +111,52 @@ This reports five retired instructions and does not complete the sum.
 
 See [Help](../docs/HELP.md) for every command and
 [Flowcharts](../docs/FLOWCHARTS.md) for the implemented paths.
+
+## 4. Compile and run C with source mapping
+
+```bash
+make run-c SOURCE=demos/c/learning.c
+```
+
+Enter:
+
+```text
+where
+step 20
+source
+regs
+run
+symbols result
+symbols calls
+quit
+```
+
+Startup assembly initializes the execution environment, then calls main.
+The C example uses globals, locals, arrays, pointers, a conditional, a loop,
+and two calls to sum. Expected final result: 72; calls: 2; exit: 0.
+Use each symbol's reported address with mem ADDRESS 4 to inspect its bytes.
+Reset restores the globals to their original state.
+
+## 5. C arithmetic through software helpers
+
+```bash
+make run-c SOURCE=demos/c/arithmetic.c GUEST_OUT=build/guest/arithmetic ARGS="--run"
+echo $?
+```
+
+Expected status: 0. The program verifies:
+
+| Variable | Expected value |
+| --- | --- |
+| product | -456765 |
+| quotient | -333 |
+| remainder | -24 |
+| wide_result | 287454020 |
+
+The underlying CPU has no MUL or DIV instruction. Linked RV32I libgcc helpers
+implement these C operations using the supported base instructions.
+For interactive inspection, omit ARGS="--run" and use symbols NAME, then
+mem ADDRESS 4 (or 8 for wide_result).
+
+See [Stage 3](../docs/STAGE3.md) for the generated ELF, binary, listing, source
+commands, stack layout, and runtime limits.

@@ -5,24 +5,60 @@ void machine_init(Machine *machine)
   *machine = (Machine){0};
 }
 
+void machine_destroy(Machine *machine)
+{
+  if (machine == NULL)
+  {
+    return;
+  }
+
+  memory_destroy(&machine->memory);
+  program_destroy(&machine->initial);
+  *machine = (Machine){0};
+}
+
 bool machine_load(Machine *machine, const Program *program)
 {
-  if (machine == NULL || program == NULL || program->word_count == 0 ||
-      program->load_address % 4 != 0 || program->load_address > MEMORY_SIZE - 4 ||
-      program->word_count > (MEMORY_SIZE - program->load_address) / 4 ||
-      program->entry % 4 != 0 || program->entry < program->load_address ||
-      program->entry >= program->load_address + program->word_count * 4) return false;
-  machine->initial = *program;
-  machine->loaded = true;
-  return machine_reset(machine);
+  if (machine == NULL || program == NULL || program->memory.bytes == NULL
+      || !memory_size_valid(program->memory.size) || program->image_size < MEMORY_WORD_SIZE
+      || program->load_address > program->memory.size - MEMORY_WORD_SIZE
+      || program->image_size > program->memory.size - program->load_address
+      || program->entry % MEMORY_WORD_SIZE != 0 || program->entry < program->load_address
+      || program->entry - program->load_address > program->image_size - MEMORY_WORD_SIZE)
+  {
+    return false;
+  }
+
+  Machine next = {0};
+  if (!memory_clone(&program->memory, &next.memory)
+      || !memory_clone(&program->memory, &next.initial.memory))
+  {
+    machine_destroy(&next);
+    return false;
+  }
+
+  next.initial.load_address = program->load_address;
+  next.initial.entry = program->entry;
+  next.initial.image_size = program->image_size;
+  next.initial.format = program->format;
+  next.cpu.program_counter = program->entry;
+  next.loaded = true;
+
+  machine_destroy(machine);
+  *machine = next;
+  return true;
 }
 
 bool machine_reset(Machine *machine)
 {
-  if (machine == NULL || !machine->loaded) return false;
+  if (machine == NULL || !machine->loaded
+      || !memory_copy(&machine->initial.memory, &machine->memory))
+  {
+    return false;
+  }
+
   cpu_reset(&machine->cpu);
   machine->cpu.program_counter = machine->initial.entry;
-  machine->memory = machine->initial.memory;
   machine->exited = false;
   machine->exit_code = 0;
   return true;

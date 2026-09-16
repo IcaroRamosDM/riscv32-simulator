@@ -3,6 +3,7 @@
 #include <stdint.h>
 #include <string.h>
 #include "cpu.h"
+#include "memory_fixture.h"
 
 static inline uint32_t encode_r(unsigned f3, unsigned f7, unsigned rd, unsigned rs1, unsigned rs2)
 {
@@ -43,5 +44,6 @@ static inline void same_cpu(const Cpu *actual, const Cpu *expected)
 }
 static inline void same_memory(const Memory *actual, const Memory *expected)
 {
-  assert(memcmp(actual->bytes, expected->bytes, sizeof actual->bytes) == 0);
+  assert(actual->size == expected->size);
+  assert(memcmp(actual->bytes, expected->bytes, actual->size) == 0);
 }

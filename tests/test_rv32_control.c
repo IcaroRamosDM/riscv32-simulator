@@ -1,3 +1,4 @@
+#include "support/memory_fixture.h"
 #include <stdio.h>
 #include "support/encoding.h"
 
@@ -15,9 +16,9 @@ static void branches(void)
   {
     for (size_t j = 0; j < sizeof offsets / sizeof offsets[0]; ++j)
     {
-      Memory memory = {0};
+      Memory memory = test_memory(MEMORY_DEFAULT_SIZE);
       put_word(&memory, 0x100, encode_b(cases[i].f3, 2, 3, offsets[j]));
-      Memory original = memory;
+      Memory original = test_memory_clone(&memory);
       Cpu cpu = {.program_counter = 0x100};
       cpu.registers[2] = cases[i].left;
       cpu.registers[3] = cases[i].right;
@@ -39,6 +40,8 @@ static void branches(void)
         assert(record.trap.value == 0x102 && record.trap.instruction_address == 0x100);
       }
       else assert(record.branch_taken == cases[i].taken);
+      memory_destroy(&original);
+      memory_destroy(&memory);
     }
   }
 }
@@ -53,11 +56,11 @@ static void jumps(void)
     {0x004080E7, 0x1FD, 0x200, 0x104, CPU_STEP_OK}, // Clear bit zero.
     {0x004080E7, 0x1FE, 0x100, 0x1FE, CPU_STEP_MISALIGNED_PC},
     {0x004080E7, 0xFFFFFFFC, 0, 0x104, CPU_STEP_OK},
-    {0x000080E7, MEMORY_SIZE, MEMORY_SIZE, 0x104, CPU_STEP_OK}
+    {0x000080E7, MEMORY_DEFAULT_SIZE, MEMORY_DEFAULT_SIZE, 0x104, CPU_STEP_OK}
   };
   for (size_t i = 0; i < sizeof cases / sizeof cases[0]; ++i)
   {
-    Memory memory = {0};
+    Memory memory = test_memory(MEMORY_DEFAULT_SIZE);
     put_word(&memory, 0x100, cases[i].word);
     Cpu cpu = {.program_counter = 0x100};
     cpu.registers[1] = cases[i].base == 0 ? 99 : cases[i].base;
@@ -66,21 +69,23 @@ static void jumps(void)
     assert(result == cases[i].result && cpu.program_counter == cases[i].target);
     assert(cpu.registers[1] == cases[i].link);
     assert(cpu.instruction_count == (result == CPU_STEP_OK ? 1u : 0u));
-    if (cpu.program_counter == MEMORY_SIZE)
+    if (cpu.program_counter == MEMORY_DEFAULT_SIZE)
     {
       Cpu expected = cpu;
       result = cpu_step_recorded(&cpu, &memory, &record);
-      assert(result == CPU_STEP_FETCH_FAILED && record.trap.value == MEMORY_SIZE);
+      assert(result == CPU_STEP_FETCH_FAILED && record.trap.value == MEMORY_DEFAULT_SIZE);
       same_cpu(&cpu, &expected);
     }
+    memory_destroy(&memory);
   }
-  Memory memory = {0};
+  Memory memory = test_memory(MEMORY_DEFAULT_SIZE);
   put_word(&memory, 0, encode_j(0, 0)); // Infinite loop, link discarded.
   Cpu cpu = {0};
   CpuStepRecord record;
   CpuStepResult result = cpu_step_recorded(&cpu, &memory, &record);
   assert(result == CPU_STEP_OK && cpu.program_counter == 0 && cpu.registers[0] == 0);
   assert(record.reg.written && !record.reg.changed && record.reg.value == 4);
+  memory_destroy(&memory);
 }
 
 static void traps_and_fence(void)
@@ -92,9 +97,9 @@ static void traps_and_fence(void)
   };
   for (size_t i = 0; i < sizeof cases / sizeof cases[0]; ++i)
   {
-    Memory memory = {0};
+    Memory memory = test_memory(MEMORY_DEFAULT_SIZE);
     put_word(&memory, 0x100, cases[i].word);
-    Memory before_memory = memory;
+    Memory before_memory = test_memory_clone(&memory);
     Cpu cpu = {.program_counter = 0x100, .instruction_count = 9};
     cpu.registers[1] = 12;
     Cpu before = cpu;
@@ -107,13 +112,15 @@ static void traps_and_fence(void)
     assert(record.fetched && record.trap.raised);
     assert(record.trap.cause == cases[i].cause && record.trap.value == cases[i].value);
     assert(record.trap.instruction_address == 0x100 && !record.reg.written && !record.memory.attempted);
+    memory_destroy(&before_memory);
+    memory_destroy(&memory);
   }
   const uint32_t fences[] = {0x0000000F, 0x0FF0000F, 0x8330000F, 0xFFFF8F8F};
   for (size_t i = 0; i < sizeof fences / sizeof fences[0]; ++i)
   {
-    Memory memory = {0};
+    Memory memory = test_memory(MEMORY_DEFAULT_SIZE);
     put_word(&memory, 0, fences[i]);
-    Memory before_memory = memory;
+    Memory before_memory = test_memory_clone(&memory);
     Cpu cpu = {0};
     cpu.registers[31] = 123;
     Cpu expected = cpu;
@@ -124,14 +131,17 @@ static void traps_and_fence(void)
     assert(result == CPU_STEP_OK && !record.reg.written && !record.trap.raised);
     same_cpu(&cpu, &expected);
     same_memory(&memory, &before_memory);
+    memory_destroy(&before_memory);
+    memory_destroy(&memory);
   }
   CpuStepRecord record;
   CpuStepResult result = cpu_step_recorded(NULL, NULL, &record);
   assert(result == CPU_STEP_INVALID_ARGUMENT && !record.fetched && !record.trap.raised);
   Cpu cpu = {.program_counter = 8, .halted = true};
-  Memory memory = {0};
+  Memory memory = test_memory(MEMORY_DEFAULT_SIZE);
   result = cpu_step_recorded(&cpu, &memory, &record);
   assert(result == CPU_STEP_HALTED && record.pc_after == 8 && !record.fetched);
+  memory_destroy(&memory);
 }
 int main(void)
 {

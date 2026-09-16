@@ -1,7 +1,8 @@
 # Development Roadmap
 
-Stages 1 and 2 are complete: the machine-state foundation, RV32I execution,
-and command-line monitor are implemented. Later stages remain planned work.
+Stages 1 through 3 are complete: the machine-state foundation, RV32I execution,
+monitor, configurable RAM, C toolchain, ELF/binary loading, and source mapping
+are implemented. Stage 4 is the next development milestone.
 
 ## 1. Machine-state foundation
 
@@ -11,7 +12,7 @@ Completed:
 - Separate debug, optimized, and sanitizer configurations.
 - CPU state, reset, and checked access to all 32 registers.
 - Zero-register behavior through the register access API.
-- Separate 64 KiB RAM with reset and checked 8-bit, 16-bit, and 32-bit access.
+- Separate RAM, initially 64 KiB and now configurable, with reset and checked 8-bit, 16-bit, and 32-bit access.
 - Little-endian multi-byte access with natural alignment and full-range checks.
 - Preservation of output values and RAM on rejected accesses.
 - Read-only 32-bit instruction fetch through the program counter, with alignment
@@ -39,7 +40,7 @@ Completed:
 - A command-line monitor with step/run/stop/reset, inspection, disassembly,
   bounded execution, Ctrl-C, change highlighting, and offline contextual help.
 - Transactional loading of annotated instruction-word text files. This is a
-  stage-2 teaching input; ELF/raw-binary loading remains in stage 3.
+  stage-2 teaching input, now complemented by the stage-3 ELF/raw-binary loaders.
 - Three self-initializing demos: arithmetic, sum loop with RAM, and a function
   call/return with a stack frame.
 - Fourteen native C suites and thirteen CLI process checks passing in debug,
@@ -56,30 +57,40 @@ selected RV32I behavior has corresponding tests.
 
 ## 3. C compilation and program loading
 
-Implementation order:
+Completed:
 
-1. Make RAM capacity configurable, with explicit size units, allocation and
-   address-range checks, and program-fit validation.
-2. Define the program memory layout, entry point, stack, initialization of global
-   data, and the supported C runtime services and libraries.
-3. Integrate a RISC-V compiler, assembler, and linker targeting RV32I and the
-   ILP32 calling convention explicitly. Verify toolchain and runtime-library
-   compatibility before relying on a compiler configuration.
-4. Load ELF programs with their loadable segments, entry point, symbols, and
-   debug information. Validate file ranges and all writes into simulated RAM.
-5. Support basic raw-binary loading with explicit load address and entry point.
-6. Map machine-instruction addresses to C source locations using debug data.
-   Represent missing source, unmapped instructions, and lines without executable
-   instructions explicitly.
+1. Owned configurable RAM: 4B through 256MiB, explicit units, checked allocation,
+   deep copies, reset without allocation, and transactional replacement.
+2. Defined C runtime/layout: code at 0x1000, initialized data, zero-filled BSS,
+   configurable 16-byte-aligned stack, main entry, and ECALL exit service.
+3. RV32I/ILP32 compiler/assembler/linker driver with final-ELF compatibility
+   checks, matching libgcc, and guest memory routines.
+4. Validated ELF32 segment loading, entry, architecture attributes, symbols,
+   and bounded DWARF metadata.
+5. Raw-binary loading requiring explicit load and entry addresses.
+6. Source range lookup, annotated tracing/disassembly, source context, symbol
+   inspection, and explicit missing-source/unmapped-line indicators.
 
-The GCC target settings will be explicit, such as `-march=rv32i -mabi=ilp32`;
-host compilation of the simulator core remains a separate build operation.
-Project-setting persistence and the complete import/export workflow are finalized
-in stage 7.
+The CLI retains instruction-first stepping. Multiple instructions from one
+source line keep the same label during tracing. Both unoptimized and optimized
+DWARF mappings are checked against GNU addr2line; neither implies one-to-one C
+translation.
 
-Exit criterion: compile and run small C programs using variables, decisions,
-loops, functions, arrays, and pointers. Show their assembly and available source
-mappings through the command-line interface.
+Validation includes 19 native C suites, 19 CLI tests, and 17 guest integration
+tests in debug, optimized-host, and ASan/UBSan configurations, plus the existing
+Unicorn comparison. Tests cover allocation failure, malformed ELF, binary/ELF
+agreement, C control flow, arrays/pointers, recursion, C/Assembly calls, stack
+alignment, initialized/BSS globals, runtime memory routines, and integer
+libgcc helpers.
+
+Exit criterion met: compile and execute the representative C programs through
+the CLI and inspect their assembly and available source mappings. See the
+[stage-3 guide](STAGE3.md) for commands, layout, supported libraries, limits,
+and expected results.
+
+The graphical workspace follows in stage 4. Source-level stepping, local-variable
+evaluation, and history remain stage 5. Side-by-side optimization comparison is
+stage 6; complete import/export/project persistence is stage 7.
 
 
 ## 4. Desktop interface
@@ -180,17 +191,17 @@ and pass release acceptance tests.
 
 ## Completion milestones
 
-- Current foundation: complete stage-2 RV32I execution and the tested command-line
-  monitor, with demos, step records, diagnostics, and help.
+- Current foundation: stages 1 through 3 connect C compilation to RV32I execution
+  and the tested monitor, with configurable RAM, loaders, source mapping, demos,
+  step records, diagnostics, and help.
 - First complete visual learning path: stages 2 through 4 connect written C to
   compiled instructions and visible machine-state changes.
 - Full product scope: the remaining debugger/history, compilation comparison,
   file/project workflows, analysis, examples, help, and distribution milestones
   are complete. Experimental decompilation keeps its explicitly documented status.
 
-The next stage is C compilation and program loading. Begin with configurable
-RAM and a documented memory/runtime layout, then integrate the RV32I/ILP32
-toolchain, ELF loading, and instruction-to-C source mapping.
+The next stage is the desktop interface: synchronized C, Assembly, registers,
+and memory views using the implemented loaders, metadata, and step records.
 
 ## References
 

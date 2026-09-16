@@ -1,3 +1,4 @@
+#include "support/memory_fixture.h"
 #include <assert.h>
 #include <inttypes.h>
 #include <stdio.h>
@@ -59,10 +60,10 @@ static void test_register_arithmetic(void)
 
   for (size_t index = 0; index < sizeof cases / sizeof cases[0]; ++index)
   {
-    Memory memory = {0};
+    Memory memory = test_memory(MEMORY_DEFAULT_SIZE);
     bool success = memory_write_u32(&memory, 0x1000, cases[index].word);
     assert(success);
-    const Memory expected_memory = memory;
+    Memory expected_memory = test_memory_clone(&memory);
 
     Cpu cpu = {.program_counter = 0x1000, .instruction_count = 41};
     for (size_t reg = 1; reg < CPU_REGISTER_COUNT; ++reg)
@@ -92,18 +93,20 @@ static void test_register_arithmetic(void)
     }
     assert(result == CPU_STEP_OK);
     assert_same_cpu(&cpu, &expected);
-    assert(memcmp(memory.bytes, expected_memory.bytes, sizeof memory.bytes) == 0);
+    assert(memcmp(memory.bytes, expected_memory.bytes, memory.size) == 0);
+    memory_destroy(&expected_memory);
+    memory_destroy(&memory);
   }
 }
 
 static void test_instruction_sequence(void)
 {
-  Memory memory = {0};
+  Memory memory = test_memory(MEMORY_DEFAULT_SIZE);
   bool success = memory_write_u32(&memory, 0, 0x003100B3); // add x1, x2, x3
   assert(success);
   success = memory_write_u32(&memory, 4, 0x40308233); // sub x4, x1, x3
   assert(success);
-  const Memory expected_memory = memory;
+  Memory expected_memory = test_memory_clone(&memory);
 
   Cpu cpu = {0};
   cpu.registers[2] = 12;
@@ -124,7 +127,9 @@ static void test_instruction_sequence(void)
   result = cpu_step(&cpu, &memory);
   assert(result == CPU_STEP_OK);
   assert_same_cpu(&cpu, &expected);
-  assert(memcmp(memory.bytes, expected_memory.bytes, sizeof memory.bytes) == 0);
+  assert(memcmp(memory.bytes, expected_memory.bytes, memory.size) == 0);
+  memory_destroy(&expected_memory);
+  memory_destroy(&memory);
 }
 
 static void test_rejected_steps(void)
@@ -141,9 +146,9 @@ static void test_rejected_steps(void)
     {1, 0x003100B3, false, CPU_STEP_MISALIGNED_PC},
     {2, 0x003100B3, false, CPU_STEP_MISALIGNED_PC},
     {3, 0x003100B3, false, CPU_STEP_MISALIGNED_PC},
-    {MEMORY_SIZE - 2, 0, false, CPU_STEP_MISALIGNED_PC},
+    {MEMORY_DEFAULT_SIZE - 2, 0, false, CPU_STEP_MISALIGNED_PC},
     {UINT32_MAX, 0, false, CPU_STEP_MISALIGNED_PC},
-    {MEMORY_SIZE, 0, false, CPU_STEP_FETCH_FAILED},
+    {MEMORY_DEFAULT_SIZE, 0, false, CPU_STEP_FETCH_FAILED},
     {UINT32_MAX - 3, 0, false, CPU_STEP_FETCH_FAILED},
     {0, 0x403110B3, false, CPU_STEP_UNKNOWN_INSTRUCTION},
     {0, 0x02011093, false, CPU_STEP_UNKNOWN_INSTRUCTION},
@@ -153,10 +158,10 @@ static void test_rejected_steps(void)
 
   for (size_t index = 0; index < sizeof cases / sizeof cases[0]; ++index)
   {
-    Memory memory = {0};
+    Memory memory = test_memory(MEMORY_DEFAULT_SIZE);
     bool success = memory_write_u32(&memory, 0, cases[index].word);
     assert(success);
-    const Memory expected_memory = memory;
+    Memory expected_memory = test_memory_clone(&memory);
 
     Cpu cpu = {
       .program_counter = cases[index].pc,
@@ -169,14 +174,16 @@ static void test_rejected_steps(void)
     const CpuStepResult result = cpu_step(&cpu, &memory);
     assert(result == cases[index].result);
     assert_same_cpu(&cpu, &expected);
-    assert(memcmp(memory.bytes, expected_memory.bytes, sizeof memory.bytes) == 0);
+    assert(memcmp(memory.bytes, expected_memory.bytes, memory.size) == 0);
+    memory_destroy(&expected_memory);
+    memory_destroy(&memory);
   }
 }
 
 static void test_null_arguments(void)
 {
-  Memory memory = {0};
-  const Memory expected_memory = memory;
+  Memory memory = test_memory(MEMORY_DEFAULT_SIZE);
+  Memory expected_memory = test_memory_clone(&memory);
   Cpu cpu = {.instruction_count = 41, .halted = true};
   const Cpu expected = cpu;
 
@@ -188,7 +195,9 @@ static void test_null_arguments(void)
   assert(result == CPU_STEP_INVALID_ARGUMENT);
 
   assert_same_cpu(&cpu, &expected);
-  assert(memcmp(memory.bytes, expected_memory.bytes, sizeof memory.bytes) == 0);
+  assert(memcmp(memory.bytes, expected_memory.bytes, memory.size) == 0);
+  memory_destroy(&expected_memory);
+  memory_destroy(&memory);
 }
 
 static void test_last_instruction(void)
@@ -204,19 +213,19 @@ static void test_last_instruction(void)
 
   for (size_t index = 0; index < sizeof cases / sizeof cases[0]; ++index)
   {
-    Memory memory = {0};
-    bool success = memory_write_u32(&memory, MEMORY_SIZE - 4, cases[index].word);
+    Memory memory = test_memory(MEMORY_DEFAULT_SIZE);
+    bool success = memory_write_u32(&memory, MEMORY_DEFAULT_SIZE - 4, cases[index].word);
     assert(success);
-    const Memory expected_memory = memory;
+    Memory expected_memory = test_memory_clone(&memory);
     Cpu cpu = {
-      .program_counter = MEMORY_SIZE - 4,
+      .program_counter = MEMORY_DEFAULT_SIZE - 4,
       .instruction_count = UINT64_MAX
     };
     cpu.registers[2] = 12;
     cpu.registers[3] = 7;
     Cpu expected = cpu;
     expected.registers[1] = cases[index].result;
-    expected.program_counter = MEMORY_SIZE;
+    expected.program_counter = MEMORY_DEFAULT_SIZE;
     expected.instruction_count = 0;
 
     CpuStepResult result = cpu_step(&cpu, &memory);
@@ -226,7 +235,9 @@ static void test_last_instruction(void)
     result = cpu_step(&cpu, &memory);
     assert(result == CPU_STEP_FETCH_FAILED);
     assert_same_cpu(&cpu, &expected);
-    assert(memcmp(memory.bytes, expected_memory.bytes, sizeof memory.bytes) == 0);
+    assert(memcmp(memory.bytes, expected_memory.bytes, memory.size) == 0);
+    memory_destroy(&expected_memory);
+    memory_destroy(&memory);
   }
 }
 

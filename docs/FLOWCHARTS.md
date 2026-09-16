@@ -1,13 +1,17 @@
 # Core and Monitor Flowcharts
 
-These diagrams describe implemented stage-2 behavior. One CPU step attempts
+These diagrams describe implemented stages 1 through 3. One CPU step attempts
 one RV32I instruction; the machine controller supplies the execution loop.
 
 ## 1. Current system overview
 
 ```mermaid
 flowchart TD
-    FILE["Annotated .words file"] --> LOAD["Validate all words, image bounds, and entry"]
+    C["C source"] --> COMPILER["RV32I/ILP32 cross-compiler and linker"]
+    COMPILER --> FILE["ELF or raw binary"]
+    WORDS["Annotated .words file"] --> LOAD["Validate input, configured RAM, segments, and entry"]
+    FILE --> LOAD
+    FILE --> DEBUG["ELF symbols and DWARF source ranges"]
     LOAD --> IMAGE["Initial program image"]
     IMAGE --> MACHINE["Machine: CPU, current RAM, and initial image"]
     USER["Terminal: step, run, stop, reset, inspect"] --> CONTROL["Machine controller"]
@@ -22,19 +26,20 @@ flowchart TD
     TRAP --> RECORD
     RECORD --> CONTROL
     CONTROL --> DISPLAY["Terminal displays execution and stop reason"]
+    DEBUG --> DISPLAY
 ```
 
 CPU execution does not print or depend on the terminal. The same records can
-later drive graphical views. The current input is machine words; compiling
-user C and loading ELF/debug information are stage 3.
+later drive graphical views. C compilation, ELF/binary loading, and source
+mapping are implemented; the desktop interface follows in stage 4.
 
 ## 2. Reset and program lifecycle
 
 ```mermaid
 flowchart TD
     START["Open input file"] --> TEMP["Parse into a temporary zero-filled image"]
-    TEMP --> VALID{"All words and addresses valid?"}
-    VALID -->|No| ERROR["Report file and line; preserve previous image"]
+    TEMP --> VALID{"Complete input and addresses valid?"}
+    VALID -->|No| ERROR["Report input error; preserve previous image"]
     VALID -->|Yes| KEEP["Keep initial image and entry"]
     KEEP --> RESET["machine_reset"]
     RESET --> RAM["Restore all RAM from initial image"]
@@ -92,7 +97,7 @@ flowchart TD
 ```
 
 For width 1, 2, or 4, the range test uses
-`address <= MEMORY_SIZE - width`. It does not overflow by adding the width.
+`address <= memory.size - width`. It does not overflow by adding the width.
 Load/store execution diagnoses misalignment first; the underlying memory API
 returns a single false result for either alignment or range failure.
 
@@ -270,3 +275,101 @@ flowchart TD
 The stack pointer initially names the byte just above RAM; subtracting 16
 creates a valid frame before any stack access. The final sp is restored to
 0x10000, x5 contains 14, and saved bytes remain available for inspection.
+
+## C compilation and runtime initialization
+
+```mermaid
+flowchart TD
+    C["C files and optional Assembly modules"] --> GCC["GCC: RV32I, ILP32, debug information"]
+    START["runtime/start.S and memory.c"] --> GCC
+    GCC --> LINK["Link with matching libgcc and configured RAM/stack layout"]
+    LINK --> FIT{"Static image fits below reserved stack?"}
+    FIT -->|No| ERROR["Build diagnostic; keep previous output files"]
+    FIT -->|Yes| ARTIFACTS["ELF, raw binary, Assembly listing, map, linker script"]
+    ARTIFACTS --> LOAD["Validate and load image into RAM"]
+    LOAD --> ENTRY["PC = ELF entry or explicit binary entry"]
+    ENTRY --> SP["Startup initializes sp and gp"]
+    SP --> BSS["Clear BSS globals"]
+    BSS --> MAIN["Call main"]
+    MAIN --> EXIT["Return value in a0; a7 = 93; ECALL"]
+    EXIT --> STOP["Machine controller reports program exit"]
+```
+
+C multiplication and division can call software routines from RV32I libgcc.
+The simulated CPU still executes only base RV32I instructions. Startup is part
+of the program and is visible in Assembly/source tracing.
+
+## Configurable RAM and ownership
+
+```mermaid
+flowchart TD
+    OPTION["RAM value with B, KiB, or MiB"] --> SIZE{"4B to 256MiB and multiple of 4?"}
+    SIZE -->|No| ERROR["Reject without changing an existing image"]
+    SIZE -->|Yes| ALLOC["Allocate temporary zero-filled RAM"]
+    ALLOC --> SUCCESS{"Allocation succeeded?"}
+    SUCCESS -->|No| ERROR
+    SUCCESS -->|Yes| PARSE["Validate and populate the selected input format"]
+    PARSE --> VALID{"Whole program valid?"}
+    VALID -->|No| FREE["Free temporary storage; preserve previous state"]
+    VALID -->|Yes| CLONE["Create independent current and reset RAM images"]
+    CLONE --> COPIES{"Both copies succeeded?"}
+    COPIES -->|No| FREE
+    COPIES -->|Yes| REPLACE["Replace machine only after all work succeeds"]
+    REPLACE --> RESET["Reset copies initial RAM into current RAM without allocation"]
+    REPLACE --> DESTROY["Destroy frees both owned images"]
+```
+
+Memory objects carry their capacity. Every access checks the actual allocation,
+not a fixed 64 KiB constant. Reset preserves the selected capacity. During
+execution, current RAM and reset RAM do not share their bytes.
+
+## ELF validation and zero-filled memory
+
+```mermaid
+flowchart TD
+    FILE["Read bounded ELF file into temporary storage"] --> HEADER{"ELF32, little-endian, RISC-V ET_EXEC?"}
+    HEADER -->|No| REJECT["Reject and release temporary storage"]
+    HEADER -->|Yes| ISA{"Supported ABI, attributes, sections, and tables?"}
+    ISA -->|No| REJECT
+    ISA -->|Yes| SEGMENTS{"All load segments fit file and RAM, align, and do not overlap?"}
+    SEGMENTS -->|No| REJECT
+    SEGMENTS -->|Yes| ENTRY{"Entry is aligned and inside file-backed executable bytes?"}
+    ENTRY -->|No| REJECT
+    ENTRY -->|Yes| RAM["Allocate zero-filled program RAM"]
+    RAM --> COPY["Copy each segment's file bytes to its load address"]
+    COPY --> ZERO["Remaining segment bytes and gaps stay zero"]
+    ZERO --> META["Copy ELF symbols and DWARF line ranges into independent metadata"]
+    META --> MACHINE["Install machine state and start at entry"]
+```
+
+ELF code/data/stack flags describe the image. This simulator checks the entry's
+executable segment but does not enforce page permissions during execution.
+Raw binaries use supplied load/entry addresses and have no symbols or DWARF.
+
+## Assembly steps and C source locations
+
+```mermaid
+flowchart TD
+    STEP["Execute one instruction and create its step record"] --> PC["Use the recorded instruction address"]
+    PC --> LOOKUP{"DWARF range covers this address?"}
+    LOOKUP -->|No| UNMAPPED["Display: no instruction-to-source mapping"]
+    LOOKUP -->|Yes| LOC["Obtain file, line, and column"]
+    LOC --> SAME{"Same file and line as previous traced instruction?"}
+    SAME -->|Yes| KEEP["Keep the current source label"]
+    SAME -->|No| FILE{"Source file available?"}
+    FILE -->|No| MISSING["Show path and line; report missing source text"]
+    FILE -->|Yes| TEXT["Show the associated source line"]
+    KEEP --> EXEC["Display the executed Assembly instruction"]
+    MISSING --> EXEC
+    TEXT --> EXEC
+    UNMAPPED --> EXEC
+    EXEC --> CHANGE["Show register/RAM effects and new PC"]
+    CHANGE --> STEP
+    SOURCE["User opens source context"] --> ROW{"DWARF has any instruction for this row?"}
+    ROW -->|No| NONE["Mark: no mapped instruction"]
+    ROW -->|Yes| ADDRESS["Show first mapped address; more instructions may follow"]
+```
+
+A source label is explanatory metadata. Instruction addresses govern execution.
+Blank lines, declarations, compiler transformations, and runtime code prevent a
+one-to-one C/Assembly relationship, including at optimization level zero.

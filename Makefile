@@ -11,8 +11,15 @@ CPPFLAGS ?=
 CFLAGS ?=
 LDFLAGS ?=
 LDLIBS ?=
+HOST_LIBS := -ldw -lelf
 PYTHON ?= python3
 ARGS ?=
+SOURCE ?= demos/c/learning.c
+RAM ?= 64KiB
+STACK ?= 4KiB
+OPT ?= 0
+GUEST_OUT ?= build/guest/program
+CROSS_COMPILE ?= riscv64-unknown-elf-
 
 ifeq ($(MODE),debug)
 MODE_CFLAGS := -O0 -g3
@@ -54,15 +61,24 @@ export BUILD_SETTING_CC := $(CC)
 export BUILD_SETTING_CPPFLAGS := $(PREPROCESS_FLAGS)
 export BUILD_SETTING_CFLAGS := $(COMPILE_FLAGS)
 export BUILD_SETTING_LDFLAGS := $(LINK_FLAGS)
-export BUILD_SETTING_LDLIBS := $(LDLIBS)
+export BUILD_SETTING_LDLIBS := $(HOST_LIBS) $(LDLIBS)
 export BUILD_SETTING_SOURCES := $(CORE_SOURCES) $(APP_SOURCE) $(TEST_SOURCES) $(SUPPORT_SOURCES)
 
-.PHONY: all app run test cli-test reference-test debug release sanitize check clean help FORCE
+.PHONY: guest run-c guest-test all app run test cli-test reference-test debug release sanitize check clean help FORCE
 .SECONDARY: $(ALL_OBJECTS)
 
 all: $(TEST_BINARIES) $(if $(APP_SOURCE),$(APP_BINARY))
 
 app: $(APP_BINARY)
+
+guest:
+	$(PYTHON) tools/build_guest.py --source "$(SOURCE)" --output "$(GUEST_OUT)" --ram "$(RAM)" --stack "$(STACK)" --opt "$(OPT)" --cross-prefix "$(CROSS_COMPILE)"
+
+run-c: app guest
+	"$(APP_BINARY)" --elf "$(GUEST_OUT).elf" --ram "$(RAM)" $(ARGS)
+
+guest-test: $(APP_BINARY)
+	$(PYTHON) tests/guest/check_guest.py --binary "$(APP_BINARY)"
 
 run: app
 	"$(APP_BINARY)" $(ARGS)
@@ -74,6 +90,7 @@ test: $(TEST_BINARIES) $(APP_BINARY)
 		"$$test_binary"; \
 	done
 	$(PYTHON) tests/cli/check_cli.py --binary "$(APP_BINARY)"
+	$(PYTHON) tests/guest/check_guest.py --binary "$(APP_BINARY)"
 
 cli-test: $(APP_BINARY)
 	$(PYTHON) tests/cli/check_cli.py --binary "$(APP_BINARY)"
@@ -83,7 +100,7 @@ reference-test: $(REFERENCE_BINARY)
 
 $(REFERENCE_BINARY): $(REFERENCE_OBJECT) $(CORE_OBJECTS) $(SETTINGS_FILE) Makefile
 	@mkdir -p "$(@D)"
-	$(CC) $(COMPILE_FLAGS) $(LINK_FLAGS) $(filter %.o,$^) $(LDLIBS) -o "$@"
+	$(CC) $(COMPILE_FLAGS) $(LINK_FLAGS) $(filter %.o,$^) $(HOST_LIBS) $(LDLIBS) -o "$@"
 
 debug:
 	+$(MAKE) MODE=debug all
@@ -113,16 +130,19 @@ $(BUILD_DIR)/obj/%.o: %.c $(SETTINGS_FILE) Makefile
 	@mkdir -p "$(@D)"
 	$(CC) $(PREPROCESS_FLAGS) $(COMPILE_FLAGS) -MMD -MP -c "$<" -o "$@"
 
+# Only the allocation-failure suite intercepts allocation calls.
+$(BUILD_DIR)/tests/test_allocation: private LINK_FLAGS += -Wl,--wrap=calloc,--wrap=malloc,--wrap=realloc
+
 ifneq ($(strip $(TEST_BINARIES)),)
 $(TEST_BINARIES): $(BUILD_DIR)/tests/%: $(BUILD_DIR)/obj/tests/%.o $(CORE_OBJECTS) $(SUPPORT_OBJECTS) $(SETTINGS_FILE) Makefile
 	@mkdir -p "$(@D)"
-	$(CC) $(COMPILE_FLAGS) $(LINK_FLAGS) $(filter %.o,$^) $(LDLIBS) -o "$@"
+	$(CC) $(COMPILE_FLAGS) $(LINK_FLAGS) $(filter %.o,$^) $(HOST_LIBS) $(LDLIBS) -o "$@"
 endif
 
 ifneq ($(APP_SOURCE),)
 $(APP_BINARY): $(APP_OBJECTS) $(CORE_OBJECTS) $(SETTINGS_FILE) Makefile
 	@mkdir -p "$(@D)"
-	$(CC) $(COMPILE_FLAGS) $(LINK_FLAGS) $(filter %.o,$^) $(LDLIBS) -o "$@"
+	$(CC) $(COMPILE_FLAGS) $(LINK_FLAGS) $(filter %.o,$^) $(HOST_LIBS) $(LDLIBS) -o "$@"
 else
 .PHONY: $(APP_BINARY)
 $(APP_BINARY):
@@ -136,8 +156,12 @@ clean:
 help:
 	@printf '%s\n' \
 		'make                    Build tests and the application when src/main.c exists.' \
-		'make test               Run C suites and CLI process tests (requires Python 3).' \
+		'make test               Run C suites, CLI tests, and cross-compiled guest tests.' \
 		'make cli-test           Run only CLI process tests.' \
+		'make guest              Compile SOURCE (default demos/c/learning.c) to ELF, binary and listing.' \
+		'make run-c              Compile C and open the monitor; ARGS="--run" runs in batch.' \
+		'make guest-test         Run ELF, binary, C runtime and DWARF integration tests.' \
+		'Guest settings: SOURCE=... RAM=64KiB STACK=4KiB OPT=0 GUEST_OUT=build/guest/program' \
 		'make reference-test     Compare with Unicorn using PYTHON from its virtual environment.' \
 		'make app                Build the application from src/main.c and the core.' \
 		'make run ARGS="..."     Build and run the application with optional arguments.' \
@@ -145,7 +169,7 @@ help:
 		'make release            Build with -O2 and debugging information.' \
 		'make MODE=release test  Run tests in the optimized configuration.' \
 		'make sanitize           Run tests with AddressSanitizer and UndefinedBehaviorSanitizer.' \
-		'make check              Run C and CLI tests in debug and sanitizer modes.' \
+		'make check              Run all suites in debug and sanitizer modes.' \
 		'make clean              Remove only the build/ directory.' \
 		'make help               Show this help.' \
 		'' \

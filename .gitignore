@@ -4,6 +4,10 @@
 /coverage/
 /compile_commands.json
 
+# Python interpreter caches.
+__pycache__/
+*.py[cod]
+
 # Local Vim state and backup files.
 *.swp
 *.swo

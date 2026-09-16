@@ -1,0 +1,47 @@
+OUTPUT_ARCH(riscv)
+ENTRY(_start)
+MEMORY
+{
+  RAM (rwx) : ORIGIN = 0x1000, LENGTH = @RAM_SIZE@ - 0x1000
+}
+PHDRS
+{
+  text PT_LOAD FLAGS(5);
+  data PT_LOAD FLAGS(6);
+  stack PT_LOAD FLAGS(6);
+}
+SECTIONS
+{
+  .text : {
+    KEEP(*(.text.start))
+    *(.text .text.*)
+    *(.rodata .rodata.* .srodata .srodata.*)
+  } > RAM :text
+  .data ALIGN(16) : {
+    __data_start = .;
+    *(.data .data.* .sdata .sdata.*)
+    __data_end = .;
+  } > RAM :data
+  __global_pointer$ = __data_start + 0x800;
+  .bss ALIGN(4) (NOLOAD) : {
+    __bss_start = .;
+    *(.bss .bss.* .sbss .sbss.*)
+    *(COMMON)
+    . = ALIGN(4);
+    __bss_end = .;
+  } > RAM :data
+  .unsupported : {
+    *(.tdata .tdata.* .tbss .tbss.*)
+    KEEP(*(.preinit_array .preinit_array.* .init_array .init_array.*))
+    KEEP(*(.fini_array .fini_array.* .ctors .dtors))
+  } > RAM :data
+  ASSERT(SIZEOF(.unsupported) == 0, "TLS and constructor/destructor arrays require an unsupported runtime")
+  __image_end = .;
+  __stack_top = @RAM_SIZE@;
+  __stack_bottom = __stack_top - @STACK_SIZE@;
+  ASSERT(__image_end <= __stack_bottom, "program data overlaps the reserved stack")
+  .stack __stack_bottom (NOLOAD) : {
+    . += @STACK_SIZE@;
+  } > RAM :stack
+  /DISCARD/ : { *(.comment .note .note.* .eh_frame .eh_frame.*) }
+}

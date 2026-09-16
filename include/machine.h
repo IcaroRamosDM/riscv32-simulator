@@ -36,7 +36,9 @@ typedef struct MachineRun
 typedef bool (*MachineShouldStop)(void *context);
 typedef void (*MachineTrace)(const CpuStepRecord *record, void *context);
 
+// Initialize a fresh owner; destroy before initializing an existing owner again.
 void machine_init(Machine *machine);
+void machine_destroy(Machine *machine);
 bool machine_load(Machine *machine, const Program *program);
 bool machine_reset(Machine *machine);
 void machine_stop(Machine *machine);

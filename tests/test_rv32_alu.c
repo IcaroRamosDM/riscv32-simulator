@@ -1,3 +1,4 @@
+#include "support/memory_fixture.h"
 #include <stdio.h>
 #include "support/encoding.h"
 
@@ -31,9 +32,9 @@ static void alu_vectors(void)
   };
   for (size_t i = 0; i < sizeof cases / sizeof cases[0]; ++i)
   {
-    Memory memory = {0};
+    Memory memory = test_memory(MEMORY_DEFAULT_SIZE);
     put_word(&memory, 0x1000, cases[i].word);
-    Memory before = memory;
+    Memory before = test_memory_clone(&memory);
     Cpu cpu = {.program_counter = 0x1000, .instruction_count = 50};
     cpu.registers[2] = cases[i].left;
     cpu.registers[3] = cases[i].right;
@@ -52,6 +53,8 @@ static void alu_vectors(void)
     assert(record.pc_before == 0x1000 && record.pc_after == 0x1004);
     assert(record.count_before == 50 && record.count_after == 51);
     assert(!record.trap.raised && !record.memory.attempted);
+    memory_destroy(&before);
+    memory_destroy(&memory);
   }
 }
 
@@ -61,14 +64,15 @@ static void aliases_and_zero(void)
   const uint32_t expected[] = {0x7FFFFFFF, 0, 0xFFFFFFFF};
   for (size_t i = 0; i < sizeof words / sizeof words[0]; ++i)
   {
-    Memory memory = {0};
+    Memory memory = test_memory(MEMORY_DEFAULT_SIZE);
     put_word(&memory, 0, words[i]);
     Cpu cpu = {0};
     cpu.registers[2] = 0x80000000;
     CpuStepResult result = cpu_step(&cpu, &memory);
     assert(result == CPU_STEP_OK && cpu.registers[2] == expected[i]);
+    memory_destroy(&memory);
   }
-  Memory memory = {0};
+  Memory memory = test_memory(MEMORY_DEFAULT_SIZE);
   put_word(&memory, 0, 0xFFF00013); // addi x0, x0, -1
   Cpu cpu = {0};
   CpuStepRecord record;
@@ -80,6 +84,7 @@ static void aliases_and_zero(void)
   put_word(&memory, 4, 0x00000093); // addi x1, x0, 0
   result = cpu_step_recorded(&cpu, &memory, &record);
   assert(result == CPU_STEP_OK && record.reg.written && !record.reg.changed);
+  memory_destroy(&memory);
 }
 int main(void)
 {
