@@ -194,15 +194,12 @@ demos/            Annotated words and C examples
 docs/             Machine guide, C workflow, scope, and flowcharts
 ```
 
-Headers use `#pragma once`. Code, comments, documentation, and commit messages
-use English.
-
-
 ## Author
 
-**Ícaro Ramos Rodrigues dos Santos**
+**Icaro Ramos Rodrigues dos Santos**
 
-**Engenheiro Eletrônico**
+Embedded Systems | Firmware | C | Hardware Design | STM32 | ARM Cortex-M | Linux | Verilog | UVM | Design Verification
 
-[GitHub](https://github.com/IcaroRamosDM) ·
-[LinkedIn](https://www.linkedin.com/in/icaro-ramos-r/)
+GitHub: [https://github.com/IcaroRamosDM](https://github.com/IcaroRamosDM)<br>
+LinkedIn: [https://www.linkedin.com/in/icaro-ramos-r/](https://www.linkedin.com/in/icaro-ramos-r/)<br>
+[icaroelt@gmail.com](mailto:icaroelt@gmail.com)
