@@ -14,7 +14,7 @@ executable name `riscv32-studio`.
 | --- | --- |
 | [How to use](HOW_TO_USE.md) | Installation, worked sessions, files, and troubleshooting. |
 | [How it works](HOW_IT_WORKS.md) | Software modules, execution, ownership, and errors. |
-| [Machine learning guide](docs/HELP.md) | Registers, RV32I formats, arithmetic, memory, and traps. |
+| [RV32I learning guide](docs/HELP.md) | Registers, RV32I formats, arithmetic, memory, and traps. |
 | [C workflow](docs/C_WORKFLOW.md) | Compiler, runtime, memory layout, and source mappings. |
 | [Flowcharts](docs/FLOWCHARTS.md) | Fetch/decode/execute, loading, reset, and monitoring. |
 
