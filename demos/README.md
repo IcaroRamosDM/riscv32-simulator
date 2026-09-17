@@ -158,5 +158,5 @@ implement these C operations using the supported base instructions.
 For interactive inspection, omit ARGS="--run" and use symbols NAME, then
 mem ADDRESS 4 (or 8 for wide_result).
 
-See [Stage 3](../docs/STAGE3.md) for the generated ELF, binary, listing, source
+See [C workflow](../docs/C_WORKFLOW.md) for the generated ELF, binary, listing, source
 commands, stack layout, and runtime limits.

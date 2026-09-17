@@ -1,6 +1,6 @@
 # Core and Monitor Flowcharts
 
-These diagrams describe implemented stages 1 through 3. One CPU step attempts
+These diagrams describe the simulator and terminal monitor. One CPU step attempts
 one RV32I instruction; the machine controller supplies the execution loop.
 
 ## 1. Current system overview
@@ -29,9 +29,9 @@ flowchart TD
     DEBUG --> DISPLAY
 ```
 
-CPU execution does not print or depend on the terminal. The same records can
-later drive graphical views. C compilation, ELF/binary loading, and source
-mapping are implemented; the desktop interface follows in stage 4.
+CPU execution does not print or depend on the terminal. The monitor consumes
+step records and metadata to explain execution. Compilation, loading, and source
+mapping remain separate from the instruction executor.
 
 ## 2. Reset and program lifecycle
 

@@ -1,11 +1,22 @@
-# RISC-V Studio
+# RISC-V Simulator
 
 An educational simulator connecting C source, RV32I instructions, registers,
 and RAM through instruction-by-instruction execution. The simulator is written
-in C17. Stages 1 through 3 are complete: CPU execution, command-line monitoring,
-configurable memory, C compilation, ELF/binary loading, and source mapping.
+in C17 and provides a complete terminal workflow: compile a freestanding C
+program, load its executable, step through RV32I instructions, and inspect the
+resulting registers, memory, symbols, and source locations.
 
-The desktop interface follows in stage 4. See the [roadmap](docs/ROADMAP.md).
+This repository is the standalone command-line edition. Its defined scope is
+complete; see the [scope and limits](docs/SCOPE.md). The build retains the
+executable name `riscv32-studio`.
+
+| Guide | Contents |
+| --- | --- |
+| [How to use](HOW_TO_USE.md) | Installation, worked sessions, files, and troubleshooting. |
+| [How it works](HOW_IT_WORKS.md) | Software modules, execution, ownership, and errors. |
+| [Machine learning guide](docs/HELP.md) | Registers, RV32I formats, arithmetic, memory, and traps. |
+| [C workflow](docs/C_WORKFLOW.md) | Compiler, runtime, memory layout, and source mappings. |
+| [Flowcharts](docs/FLOWCHARTS.md) | Fetch/decode/execute, loading, reset, and monitoring. |
 
 ## Quick start
 
@@ -14,8 +25,9 @@ cross-compilation dependencies:
 
 ```bash
 sudo apt update
-sudo apt install build-essential python3 libdw-dev libelf-dev gcc-riscv64-unknown-elf binutils-riscv64-unknown-elf
-cd /home/axtor/dev/riscv32-studio
+sudo apt install git build-essential python3 libdw-dev libelf-dev gcc-riscv64-unknown-elf binutils-riscv64-unknown-elf
+git clone https://github.com/IcaroRamosDM/riscv32-simulator.git
+cd riscv32-simulator
 make run-c
 ```
 
@@ -55,7 +67,7 @@ Expected shell status: 0. The original annotated-word examples also work:
 ./build/debug/riscv32-studio --program demos/sum.words --run
 ```
 
-Read the [stage-3 guide](docs/STAGE3.md) for the complete C workflow, memory
+Read the [C workflow guide](docs/C_WORKFLOW.md) for the complete C workflow, memory
 layout, toolchain settings, generated artifacts, and runtime limits.
 The [learning guide](docs/HELP.md), [flowcharts](docs/FLOWCHARTS.md), and
 [demo walkthroughs](demos/README.md) explain the execution model.
@@ -179,8 +191,18 @@ tests/cli/        Monitor process tests
 tests/guest/      Cross-toolchain/runtime/source-mapping integration tests
 tests/reference/  Optional Unicorn comparison
 demos/            Annotated words and C examples
-docs/             Help, stage-3 guide, roadmap, and flowcharts
+docs/             Machine guide, C workflow, scope, and flowcharts
 ```
 
 Headers use `#pragma once`. Code, comments, documentation, and commit messages
 use English.
+
+
+## Author
+
+**Ícaro Ramos Rodrigues dos Santos**
+
+**Engenheiro Eletrônico**
+
+[GitHub](https://github.com/IcaroRamosDM) ·
+[LinkedIn](https://www.linkedin.com/in/icaro-ramos-r/)

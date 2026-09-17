@@ -1,6 +1,6 @@
-# Stage 3: From C to a running RV32I program
+# From C to a running RV32I program
 
-This stage is implemented. GCC translates C into machine code. The simulated
+GCC translates C into machine code. The simulated
 CPU fetches and executes that machine code; it does not interpret C source.
 DWARF debug information lets the monitor associate instruction addresses with
 source locations for explanation.
@@ -12,7 +12,7 @@ On Ubuntu, including Ubuntu-26.04 under WSL 2:
 ```bash
 sudo apt update
 sudo apt install build-essential python3 libdw-dev libelf-dev gcc-riscv64-unknown-elf binutils-riscv64-unknown-elf
-cd /home/axtor/dev/riscv32-studio
+cd riscv32-simulator
 make app
 riscv64-unknown-elf-gcc -march=rv32i -mabi=ilp32 -print-libgcc-file-name
 ```
@@ -113,7 +113,8 @@ the previous outputs intact. Successful compilation replaces the selected
 output files. `make clean` removes generated files under `build/`.
 
 `OPT=0` is the didactic default. `OPT=2` builds optimized C using the same
-pipeline, but the side-by-side comparison interface remains stage 6.
+pipeline. Build each optimization level into a different output prefix to
+compare the resulting listings and executions.
 `MODE=release` optimizes the host simulator; `OPT=2` optimizes the guest C.
 These are separate settings.
 
@@ -179,8 +180,9 @@ Included support:
 There is no hosted C library, general `printf`, `malloc/free`, filesystem,
 operating system, command-line arguments, TLS, or automatic constructor/destructor
 arrays. Unsupported runtime arrays and TLS are rejected. Other ECALL services
-stop with a diagnostic. This stage does not promise that arbitrary desktop C
-programs can run unchanged or that all libgcc routines have been validated.
+stop with a diagnostic. The supported environment is freestanding C. Arbitrary desktop C programs
+may require unavailable libraries or system services. Validation covers the
+listed examples and helpers.
 
 ## 6. ELF and binary loading
 
@@ -244,7 +246,7 @@ Source text is read from the recorded filesystem path; rebuild after editing it.
 Mappings describe the loaded executable and are not regenerated if a guest
 modifies its own instruction bytes.
 The monitor does not reconstruct original C from machine code or evaluate local
-variables. Those are separate later capabilities.
+variables. These features are outside this terminal edition.
 
 Both `-O0` and `-O2` can have many instructions per C line, line changes in an
 unexpected order, and instructions with no C correspondence. Startup assembly

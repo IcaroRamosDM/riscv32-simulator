@@ -13,7 +13,7 @@ make app
 At `rv32>`, type `help`, `help formats`, or `help addi`. Commands are
 case-sensitive; mnemonic help accepts either case. Use `quit` to leave.
 For C compilation, ELF/binary input, source inspection, and the memory/runtime
-layout, follow the [stage-3 guide](STAGE3.md). Use `make run-c` to start its C demo.
+layout, follow the [C workflow](C_WORKFLOW.md). Use `make run-c` to start its C demo.
 The [demo walkthroughs](../demos/README.md) supply expected results.
 The [flowcharts](FLOWCHARTS.md) show the current CPU and monitor paths.
 
@@ -251,8 +251,8 @@ not retire, which explains 24 attempts and 23 retired instructions in the sum
 demo. Repeated step/run after exit does nothing until reset.
 
 EBREAK pauses at its own address and does not retire. Repeating step will
-encounter it again; use reset to restart. Breakpoint removal and advanced
-debugger resume are planned in stage 5.
+encounter it again; use reset to restart. This monitor does not implement
+breakpoint removal or automatic resume beyond EBREAK.
 
 FENCE retires as a no-op because all memory effects are already applied in
 order. Reserved FENCE rd/rs1 and ordering fields are ignored conservatively,
@@ -295,7 +295,7 @@ must be separate from CPU/RAM and other input state.
 Use flags before reading conditional details. A successful write can leave a
 register unchanged; x0 always remains zero. Load sign extension is reflected in
 the register result, not in the raw memory values. Records capture one attempt;
-history storage and reverse execution are stage 5.
+the monitor does not retain a reversible execution history.
 
 ## Commands and file format
 
@@ -343,8 +343,7 @@ image starts at zero.
 
 This format is distinct from an assembler source, Intel HEX, ELF, or a raw
 binary. ELF and raw binary are loaded with `--elf` and `--bin` respectively;
-see [Stage 3](STAGE3.md). The full import/export interface is stage 7. Disassembly
-is for inspection; the displayed FENCE ordering fields are descriptive output.
+see [C workflow](C_WORKFLOW.md). Disassembly is for inspection; the displayed FENCE ordering fields are descriptive output.
 
 In batch mode, shell status is a0 & 255 for program exit, 1 for a trap, 2 for an
 input/setup error, 124 for reaching the limit, and 130 for Ctrl-C. The displayed
